@@ -10,3 +10,4 @@ openpyxl
 scikit-learn
 joblib
 plotly
+seaborn
