@@ -1,0 +1,12 @@
+streamlit
+pandas
+numpy
+matplotlib
+scipy
+requests
+beautifulsoup4
+yfinance
+openpyxl
+scikit-learn
+joblib
+plotly
