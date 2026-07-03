@@ -65,7 +65,7 @@ class ClassificadorDestinoIA:
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
         self.pipeline = Pipeline([
             ('tfidf', TfidfVectorizer(ngram_range=(1, 2), max_features=5000, stop_words='english')),
-            ('clf', LogisticRegression(max_iter=1000, multiclass='ovr', random_state=42))  # <-- CORREÇÃO AQUI
+            ('clf', LogisticRegression(max_iter=1000, random_state=42))  # <--- CORREÇÃO DEFINITIVA
         ])
         self.pipeline.fit(X_train, y_train)
         self.classes_ = self.pipeline.classes_
