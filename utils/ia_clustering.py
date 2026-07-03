@@ -6,38 +6,37 @@ from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-def preparar_dados_clusterizacao(df_municipios, col_uf=None):
+def preparar_dados_clusterizacao(df_municipios):
     """
     Prepara os dados dos municípios para clusterização.
-    Detecta automaticamente a coluna que contém a UF (estado).
+    Detecta automaticamente as colunas de UF e destino.
     """
-    # --- DETECÇÃO AUTOMÁTICA DA COLUNA UF ---
+    # --- DETECÇÃO DA COLUNA UF ---
+    col_uf = None
+    for col in df_municipios.columns:
+        if 'uf' in col.lower():
+            col_uf = col
+            break
     if col_uf is None:
-        # Procura por colunas que contenham 'UF' no nome (case insensitive)
-        possiveis = [col for col in df_municipios.columns if 'uf' in col.lower()]
-        if possiveis:
-            col_uf = possiveis[0]
-        else:
-            # Se não encontrar, cria uma coluna fictícia 'UF' com 'BR'
-            df_municipios = df_municipios.copy()
-            df_municipios['UF'] = 'BR'
-            col_uf = 'UF'
-    else:
-        if col_uf not in df_municipios.columns:
-            # Se a coluna especificada não existir, tenta achar automaticamente
-            possiveis = [col for col in df_municipios.columns if 'uf' in col.lower()]
-            if possiveis:
-                col_uf = possiveis[0]
-            else:
-                df_municipios = df_municipios.copy()
-                df_municipios['UF'] = 'BR'
-                col_uf = 'UF'
+        df_municipios = df_municipios.copy()
+        df_municipios['UF'] = 'BR'
+        col_uf = 'UF'
+
+    # --- DETECÇÃO DA COLUNA DESTINO ---
+    col_destino = None
+    for col in df_municipios.columns:
+        if any(palavra in col.lower() for palavra in ['destino', 'unidade', 'tipo']):
+            col_destino = col
+            break
+    if col_destino is None:
+        # Fallback: usa a coluna 'DESTINO' ou a última coluna que tenha 'tipo'
+        col_destino = 'DESTINO' if 'DESTINO' in df_municipios.columns else df_municipios.columns[-1]
 
     # --- AGRUPAMENTO POR MUNICÍPIO E UF ---
     agg = df_municipios.groupby(['MUNICÍPIO', col_uf]).agg({
         'MASSA_COLETADA': 'sum',
         'TIPO_COLETA_EXECUTADA': 'count',  # número de rotas
-        'DESTINO': lambda x: ','.join(x.unique())  # destinos concatenados
+        col_destino: lambda x: ','.join(x.unique())  # destinos concatenados
     }).reset_index()
     
     # Renomeia colunas
@@ -45,7 +44,7 @@ def preparar_dados_clusterizacao(df_municipios, col_uf=None):
     
     # --- CÁLCULO DE INDICADORES ---
     def calc_indicadores(grupo):
-        destinos = grupo['DESTINO'].str.lower()
+        destinos = grupo[col_destino].str.lower()
         total = len(grupo)
         pct_aterro = destinos.str.contains('aterro').sum() / total * 100 if total > 0 else 0
         pct_compostagem = destinos.str.contains('compostagem').sum() / total * 100 if total > 0 else 0
