@@ -151,12 +151,12 @@ DOC_PADRAO = 0.15          # Bulk waste (quando não há caracterização)
 K_PADRAO = 0.07            # Bulk waste – Tropical wet (Tabela 10)
 
 # =========================================================
-# FUNÇÃO PARA CALCULAR DOC e k PONDERADOS (VIA SNIS)
+# FUNÇÃO PARA CALCULAR DOC e k PONDERADOS (VIA SNIS) - VERSÃO ROBUSTA
 # =========================================================
 def calcular_doc_k_ponderado(df_municipio):
     """
     Calcula DOC e k ponderados com base na caracterização dos resíduos do SNIS.
-    Usa as Tabelas 7 e 10 da UNFCCC A6.4-AMT-003 (Tropical Wet).
+    Se as colunas de caracterização não existirem ou estiverem vazias, usa valores padrão (bulk waste).
     """
     colunas_caract = {
         'Alimentos_Verdes': 'GTR1501',
@@ -168,10 +168,14 @@ def calcular_doc_k_ponderado(df_municipio):
         'Outros': 'GTR1507'
     }
     
-    df_caract = df_municipio[[col for col in colunas_caract.values() if col in df_municipio.columns]].copy()
-    if df_caract.empty or df_caract.isna().all().all():
-        return DOC_PADRAO, K_PADRAO
+    # Verifica se as colunas existem no DataFrame
+    colunas_presentes = [col for col in colunas_caract.values() if col in df_municipio.columns]
+    if not colunas_presentes:
+        return DOC_PADRAO, K_PADRAO  # fallback seguro
     
+    df_caract = df_municipio[colunas_presentes].copy()
+    
+    # Converte para numérico e preenche NaN com 0
     for col in df_caract.columns:
         df_caract[col] = pd.to_numeric(df_caract[col], errors='coerce').fillna(0)
     
@@ -183,7 +187,10 @@ def calcular_doc_k_ponderado(df_municipio):
         else:
             pct[nome] = 0
     
-    # Valores da Tabela 7 (DOC) e Tabela 10 (k) – Tropical Wet
+    # Se todos os percentuais forem zero, usa bulk waste
+    if sum(pct.values()) == 0:
+        return DOC_PADRAO, K_PADRAO
+    
     doc_pond = (pct['Alimentos_Verdes'] * 0.7 +
                 pct['Papeis'] * 0.5 +
                 pct['Têxteis'] * 0.24 +
@@ -194,8 +201,8 @@ def calcular_doc_k_ponderado(df_municipio):
               pct['Têxteis'] * 0.07 +
               pct['Outros'] * 0.035) / 100.0
     
-    doc_pond = max(doc_pond, DOC_PADRAO)
-    k_pond = max(k_pond, K_PADRAO)
+    doc_pond = max(doc_pond, DOC_PADRAO) if doc_pond > 0 else DOC_PADRAO
+    k_pond = max(k_pond, K_PADRAO) if k_pond > 0 else K_PADRAO
     
     return doc_pond, k_pond
 
@@ -757,7 +764,19 @@ with tab_tradicional:
 
 # ======================== ABA DE IA ========================
 with tab_ia:
-    st.header("🧠 Classificação Inteligente de Destinos (Processamento de Linguagem Natural)")
+    st.header("🧠 Insights com Inteligência Artificial")
+    
+    st.markdown("""
+    Aqui você pode explorar análises avançadas utilizando técnicas de Inteligência Artificial:
+    - **Classificação de destinos** com Processamento de Linguagem Natural (PLN)
+    - **Clusterização de municípios** por perfil de resíduos (K-Means)
+    - **Previsão de geração de resíduos** (Random Forest)
+    """)
+    
+    # =========================================================
+    # CLASSIFICAÇÃO DE DESTINOS (PLN)
+    # =========================================================
+    st.subheader("📋 Classificação Inteligente de Destinos (PLN)")
     
     st.markdown("""
     O SNIS possui **mais de 100 variações textuais** para descrever o mesmo destino 
@@ -769,11 +788,7 @@ with tab_ia:
     - 🛡️ Recair para regras manuais quando a confiança é baixa (fallback seguro)
     """)
     
-    # =========================================================
-    # COMPARAÇÃO: Regra vs IA
-    # =========================================================
-    st.subheader("📋 Comparação: Regra Manual vs. Inteligência Artificial")
-    
+    # Comparação: Regra vs IA
     amostras = df_clean[COL_DESTINO].dropna().sample(min(20, len(df_clean))).tolist()
     
     dados_comparacao = []
@@ -798,9 +813,7 @@ with tab_ia:
     df_comparacao = pd.DataFrame(dados_comparacao)
     st.dataframe(df_comparacao, use_container_width=True, height=400)
     
-    # =========================================================
-    # DISTRIBUIÇÃO DOS DESTINOS PELA IA
-    # =========================================================
+    # Distribuição dos destinos pela IA
     st.subheader("📊 Distribuição Nacional de Destinos (Classificação por IA)")
     
     @st.cache_data
@@ -832,30 +845,123 @@ with tab_ia:
     )
     
     # =========================================================
-    # PRÓXIMOS PASSOS
+    # CLUSTERIZAÇÃO DE MUNICÍPIOS (K-MEANS)
     # =========================================================
     st.markdown("---")
-    st.subheader("🚀 Em breve: Novos módulos de IA")
+    st.subheader("📈 Clusterização de Municípios por Perfil de Resíduos")
     
-    col_prox1, col_prox2 = st.columns(2)
+    st.markdown("""
+    Agrupamos municípios com perfis semelhantes de geração e destinação de resíduos usando **K-Means**.
+    Isso ajuda a identificar quais municípios são prioritários para políticas de compostagem.
+    """)
     
-    with col_prox1:
-        st.markdown("""
-        ### 📈 Clusterização de Municípios
-        Agruparemos municípios com perfis semelhantes de geração e destinação de resíduos usando **K-Means**.
-        
-        *Benefício:* Identificar quais municípios são prioritários para políticas de compostagem.
-        """)
+    if st.button("🔍 Executar Clusterização"):
+        with st.spinner("Agrupando municípios por similaridade..."):
+            # Importa as funções de clusterização
+            from utils.ia_clustering import (
+                preparar_dados_clusterizacao,
+                clusterizar_municipios,
+                aplicar_pca,
+                plot_clusters,
+                resumo_clusters
+            )
+            
+            X, df_cluster = preparar_dados_clusterizacao(df_clean)
+            if X.empty:
+                st.warning("Dados insuficientes para clusterização.")
+            else:
+                # Aplica clusterização
+                n_clusters = st.slider("Número de clusters:", 2, 6, 4)
+                labels, kmeans, scaler = clusterizar_municipios(X, n_clusters=n_clusters)
+                df_cluster['Cluster'] = labels
+                
+                # Gráfico PCA
+                X_pca, pca = aplicar_pca(X)
+                fig = plot_clusters(X_pca, labels, df_cluster)
+                st.pyplot(fig)
+                
+                # Resumo dos clusters
+                st.subheader("📊 Resumo dos Clusters")
+                resumo = resumo_clusters(df_cluster, labels)
+                st.dataframe(resumo.style.format({
+                    'Massa_Media': '{:.0f}',
+                    'Massa_Mediana': '{:.0f}',
+                    'Massa_Total_Cluster': '{:.0f}',
+                    'Rotas_Media': '{:.1f}',
+                    'Pct_Aterro_Media': '{:.1f}',
+                    'Pct_Compostagem_Media': '{:.1f}'
+                }))
+                
+                # Lista de municípios por cluster
+                st.subheader("📍 Municípios por Cluster")
+                for cluster in sorted(df_cluster['Cluster'].unique()):
+                    with st.expander(f"Cluster {cluster+1}"):
+                        municipios_cluster = df_cluster[df_cluster['Cluster'] == cluster][['MUNICÍPIO', 'UF', 'Massa_Total']]
+                        municipios_cluster = municipios_cluster.sort_values('Massa_Total', ascending=False)
+                        st.dataframe(municipios_cluster.style.format({
+                            'Massa_Total': '{:.0f}'
+                        }), use_container_width=True)
     
-    with col_prox2:
-        st.markdown("""
-        ### 🔮 Previsão de Geração de Resíduos
-        Utilizaremos **Random Forest** para projetar a geração de RSU para os próximos 5 anos.
-        
-        *Benefício:* Auxiliar no planejamento de aterros, usinas e metas de reciclagem.
-        """)
+    # =========================================================
+    # PREVISÃO DE GERAÇÃO DE RESÍDUOS (RANDOM FOREST)
+    # =========================================================
+    st.markdown("---")
+    st.subheader("🔮 Previsão de Geração de Resíduos (Random Forest)")
     
-    st.info("💡 Esses módulos serão adicionados na próxima etapa. Fique ligado!")
+    st.markdown("""
+    Utilizamos **Random Forest** para projetar a geração de RSU para os próximos anos.
+    O modelo considera tendências históricas de massa coletada, população e geração per capita.
+    """)
+    
+    # Seleciona um município para previsão
+    municipio_previsao = st.selectbox(
+        "Selecione um município para previsão:",
+        [""] + sorted(df_clean[COL_MUNICIPIO].unique()),
+        key="previsao_municipio"
+    )
+    
+    if municipio_previsao and st.button("🔮 Executar Previsão"):
+        with st.spinner(f"Treinando modelo para {municipio_previsao}..."):
+            # Importa as funções de previsão
+            from utils.ia_previsao import (
+                preparar_dados_previsao,
+                treinar_modelo_previsao,
+                prever_futuro,
+                plot_previsao
+            )
+            
+            df_mun_previsao = df_clean[df_clean[COL_MUNICIPIO] == municipio_previsao]
+            if df_mun_previsao.empty:
+                st.warning("Dados insuficientes para este município.")
+            else:
+                try:
+                    # Treina o modelo
+                    model, scaler, df_hist, mae, r2 = treinar_modelo_previsao(df_mun_previsao)
+                    
+                    # Gera previsões
+                    anos_futuros = list(range(2025, 2031))
+                    df_futuro = prever_futuro(model, scaler, df_hist, anos_futuros)
+                    
+                    # Métricas
+                    col1, col2 = st.columns(2)
+                    col1.metric("MAE (Erro médio absoluto)", f"{mae:.2f} t")
+                    col2.metric("R² (Coeficiente de determinação)", f"{r2:.2f}")
+                    
+                    # Gráfico
+                    fig = plot_previsao(df_hist, df_futuro)
+                    st.pyplot(fig)
+                    
+                    # Tabela de previsões
+                    st.subheader("📋 Previsões Anuais")
+                    st.dataframe(df_futuro.style.format({
+                        'Populacao_Estimada': '{:,.0f}',
+                        'Geracao_per_capita_Estimada': '{:.2f}',
+                        'Massa_Prevista (t)': '{:,.0f}'
+                    }))
+                    
+                except Exception as e:
+                    st.error(f"Erro ao treinar modelo: {e}")
+                    st.info("ℹ️ Tente selecionar um município com mais dados históricos.")
 
 # =========================================================
 # RODAPÉ GERAL DO APP
