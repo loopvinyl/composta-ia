@@ -29,14 +29,20 @@ def preparar_dados_clusterizacao(df_municipios):
             col_destino = col
             break
     if col_destino is None:
-        # Fallback: usa a coluna 'DESTINO' ou a última coluna que tenha 'tipo'
         col_destino = 'DESTINO' if 'DESTINO' in df_municipios.columns else df_municipios.columns[-1]
+
+    # --- FUNÇÃO DE AGREGAÇÃO ROBUSTA PARA DESTINO ---
+    def concat_destinos(series):
+        # Converte todos para string, remove NaN e vazios, e junta com vírgula
+        strings = series.dropna().astype(str).str.strip()
+        strings = strings[strings != '']
+        return ','.join(strings.unique()) if not strings.empty else ''
 
     # --- AGRUPAMENTO POR MUNICÍPIO E UF ---
     agg = df_municipios.groupby(['MUNICÍPIO', col_uf]).agg({
         'MASSA_COLETADA': 'sum',
         'TIPO_COLETA_EXECUTADA': 'count',  # número de rotas
-        col_destino: lambda x: ','.join(x.unique())  # destinos concatenados
+        col_destino: concat_destinos       # destinos concatenados com tratamento robusto
     }).reset_index()
     
     # Renomeia colunas
@@ -44,10 +50,13 @@ def preparar_dados_clusterizacao(df_municipios):
     
     # --- CÁLCULO DE INDICADORES ---
     def calc_indicadores(grupo):
-        destinos = grupo[col_destino].str.lower()
+        # Extrai a coluna de destino do grupo, garantindo que seja string
+        destinos_series = grupo[col_destino].dropna().astype(str).str.lower()
         total = len(grupo)
-        pct_aterro = destinos.str.contains('aterro').sum() / total * 100 if total > 0 else 0
-        pct_compostagem = destinos.str.contains('compostagem').sum() / total * 100 if total > 0 else 0
+        if total == 0:
+            return pd.Series({'Pct_Aterro': 0, 'Pct_Compostagem': 0})
+        pct_aterro = destinos_series.str.contains('aterro').sum() / total * 100
+        pct_compostagem = destinos_series.str.contains('compostagem').sum() / total * 100
         return pd.Series({
             'Pct_Aterro': pct_aterro,
             'Pct_Compostagem': pct_compostagem
