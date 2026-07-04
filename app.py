@@ -1454,7 +1454,7 @@ with tab_ia:
                 """)
 
     # =========================================================
-    # SEÇÃO 4: ANÁLISE DE COBERTURA DA COLETA SELETIVA DE ORGÂNICOS
+    # SEÇÃO 4: ANÁLISE DE COBERTURA DA COLETA SELETIVA DE ORGÂNICOS (CORRIGIDA)
     # =========================================================
     st.markdown("---")
     st.subheader("📊 Análise de Cobertura da Coleta Seletiva de Orgânicos")
@@ -1478,8 +1478,14 @@ with tab_ia:
     df_seletiva = df_clean[mask_organicos].groupby(COL_MUNICIPIO).agg({COL_MASSA: 'sum'}).reset_index()
     df_seletiva.rename(columns={COL_MASSA: 'Massa_Seletiva_Organicos'}, inplace=True)
 
+    # ---- OBTÉM A UF DE CADA MUNICÍPIO (CORREÇÃO) ----
+    df_uf = df_clean[[COL_MUNICIPIO, COL_UF]].drop_duplicates(subset=[COL_MUNICIPIO])
+    df_uf.rename(columns={COL_UF: 'UF'}, inplace=True)
+
     # Junta os dados
     df_cobertura = pd.merge(df_total, df_seletiva, on=COL_MUNICIPIO, how='left').fillna(0)
+    df_cobertura = pd.merge(df_cobertura, df_uf, on=COL_MUNICIPIO, how='left')   # <--- ADICIONA A UF
+
     df_cobertura['Pct_Seletiva'] = (df_cobertura['Massa_Seletiva_Organicos'] / df_cobertura['Massa_Total']) * 100
     df_cobertura['Pct_Seletiva'] = df_cobertura['Pct_Seletiva'].round(2)
     df_cobertura['Possui_Seletiva'] = df_cobertura['Massa_Seletiva_Organicos'] > 0
@@ -1511,7 +1517,7 @@ with tab_ia:
     col3.metric("Média municipal (não ponderada)", f"{formatar_br(media_pct_municipios, auto_precision=False, casas_override=2)}%")
 
     # =========================================================
-    # 🏆 TOP 10 MUNICÍPIOS (ADICIONADO)
+    # 🏆 TOP 10 MUNICÍPIOS (CORRIGIDO – AGORA COM 'UF')
     # =========================================================
     st.markdown("### 🏆 Destaques da Coleta Seletiva de Orgânicos")
 
