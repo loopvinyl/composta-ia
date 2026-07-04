@@ -920,16 +920,16 @@ with tab_ia:
     """)
     
     # =========================================================
-    # CLASSIFICAÇÃO DE DESTINOS (PLN)
+    # CLASSIFICAÇÃO DE DESTINOS (PLN) - TEXTO CORRIGIDO
     # =========================================================
     st.subheader("📋 Classificação Inteligente de Destinos (PLN)")
     
     st.markdown("""
-    O SNIS possui **mais de 100 variações textuais** para descrever o mesmo destino 
+    O SNIS apresenta **diversas variações textuais** para descrever o mesmo destino 
     (ex: "Aterro Sanitário", "AS", "Aterro Sani.", "Aterro – Gerenciado"). 
-    
+
     O **Composta.IA** utiliza um modelo de **Regressão Logística com TF-IDF** para:
-    - ✅ Generalizar padrões textuais com alta acurácia (>95%)
+    - ✅ Generalizar padrões textuais com alta acurácia
     - 🔍 Exibir o nível de confiança de cada classificação
     - 🛡️ Recair para regras manuais quando a confiança é baixa (fallback seguro)
     """)
@@ -1707,19 +1707,19 @@ with tab_ia:
     """)
 
 # =========================================================
-# AUTORIA E USO (NOVA SEÇÃO)
+# AUTORIA E USO (TEXTO CORRIGIDO)
 # =========================================================
 st.markdown("---")
 st.subheader("📬 Autoria e uso")
 
 st.markdown("""
-Este aplicativo foi desenvolvido por um servidor público federal com o objetivo de apoiar a gestão de resíduos sólidos, 
+Este aplicativo foi desenvolvido para apoiar a gestão de resíduos sólidos, 
 mapear oportunidades de compostagem e auxiliar municípios a se prepararem para o mercado de créditos de carbono.
 
 **Potencial de uso:**  
 - Mapeamento de municípios com coleta seletiva de orgânicos.  
 - Estimativa de emissões evitadas com compostagem.  
-- Projeção de receitas com créditos de carbono (UNFCCC).  
+- Projeção de receitas com créditos de carbono (metodologia UNFCCC).  
 - Identificação de prioridades para expansão da coleta seletiva.
 """)
 
@@ -1729,6 +1729,5 @@ mapear oportunidades de compostagem e auxiliar municípios a se prepararem para 
 st.markdown("---")
 st.caption("""
 **Composta.IA** | Ferramenta de apoio à gestão de resíduos sólidos e créditos de carbono  
-Dados: SNIS (2023/2024) | Metodologia: UNFCCC A6.4-AMT-003 (2025) + TOOL13 (AMS-III.F) | IPCC AR5 (GWP-100)  
-Desenvolvido por servidor público federal – disponível para contribuir com o SINISA e políticas públicas de resíduos.
+Dados: SNIS (2023/2024) | Metodologia: UNFCCC A6.4-AMT-003 (2025) + TOOL13 (AMS-III.F) | IPCC AR5 (GWP-100)
 """)
