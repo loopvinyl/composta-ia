@@ -84,7 +84,11 @@ def preparar_dados_clusterizacao(df_municipios):
     # --- FILTRO: REMOVE MUNICÍPIOS SEM MASSA (Massa_Total = 0) ---
     mask = X['Massa_Total'] > 0
     X = X.loc[mask].copy()
-    df_cluster = df_cluster.loc[mask].copy()  # <-- CORREÇÃO AQUI: aplica o mesmo filtro
+    df_cluster = df_cluster.loc[mask].copy()
+    
+    # --- RESETA OS ÍNDICES PARA GARANTIR ALINHAMENTO ---
+    X.reset_index(drop=True, inplace=True)
+    df_cluster.reset_index(drop=True, inplace=True)
     
     return X, df_cluster
 
@@ -106,6 +110,10 @@ def plot_clusters(X_pca, labels, df_cluster):
     """Gera gráfico de dispersão dos clusters."""
     fig, ax = plt.subplots(figsize=(10, 8))
     
+    # Garante que df_cluster tenha o mesmo número de linhas que X_pca
+    if len(df_cluster) != X_pca.shape[0]:
+        raise ValueError("df_cluster e X_pca têm tamanhos diferentes. Verifique o filtro.")
+    
     df_plot = pd.DataFrame({
         'PC1': X_pca[:, 0],
         'PC2': X_pca[:, 1],
@@ -123,15 +131,17 @@ def plot_clusters(X_pca, labels, df_cluster):
         s=50
     )
     
+    # Anota os 10 maiores municípios (usando índices do df_cluster)
     top_n = df_cluster.nlargest(10, 'Massa_Total')
     for _, row in top_n.iterrows():
-        idx = df_cluster[df_cluster['MUNICÍPIO'] == row['MUNICÍPIO']].index[0]
-        ax.annotate(
-            f"{row['MUNICÍPIO'][:15]}",
-            (X_pca[idx, 0], X_pca[idx, 1]),
-            fontsize=8,
-            alpha=0.7
-        )
+        idx = row.name  # índice do df_cluster, que agora está alinhado com X_pca
+        if idx < X_pca.shape[0]:
+            ax.annotate(
+                f"{row['MUNICÍPIO'][:15]}",
+                (X_pca[idx, 0], X_pca[idx, 1]),
+                fontsize=8,
+                alpha=0.7
+            )
     
     ax.set_xlabel('Componente Principal 1')
     ax.set_ylabel('Componente Principal 2')
@@ -141,10 +151,7 @@ def plot_clusters(X_pca, labels, df_cluster):
     return fig
 
 def resumo_clusters(df_cluster, labels):
-    """
-    Retorna um resumo estatístico por cluster.
-    Espera que df_cluster tenha as colunas necessárias e que labels seja um array.
-    """
+    """Retorna um resumo estatístico por cluster."""
     df = df_cluster.copy()
     df['Cluster'] = labels
     resumo = df.groupby('Cluster').agg({
@@ -162,7 +169,6 @@ def resumo_clusters(df_cluster, labels):
 def descrever_clusters(df_cluster, labels):
     """
     Gera uma descrição textual para cada cluster com base nas médias das variáveis.
-    Espera que df_cluster tenha as colunas necessárias e que labels seja um array.
     """
     df = df_cluster.copy()
     df['Cluster'] = labels
@@ -178,7 +184,6 @@ def descrever_clusters(df_cluster, labels):
         
         desc = f"**Cluster {cluster+1}** – {n_municipios} municípios\n\n"
         
-        # Perfil de massa
         if media_massa > 100000:
             desc += "📊 **Massa de resíduos:** Alta (acima de 100 mil t/ano). "
         elif media_massa > 20000:
@@ -186,7 +191,6 @@ def descrever_clusters(df_cluster, labels):
         else:
             desc += "📊 **Massa de resíduos:** Baixa (menos de 20 mil t/ano). "
         
-        # Perfil de destinação
         if media_compostagem > 50:
             desc += "♻️ **Compostagem:** Alta (acima de 50% das rotas). "
             if media_aterro < 20:
