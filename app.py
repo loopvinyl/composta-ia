@@ -1645,7 +1645,7 @@ with tab_ia:
     col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown("#### 📉 Cenário Atual (Pessimista)")
-        st.metric("Massa compostada", f"{formatar_br(massa_compostada_atual, auto_precision=False, casas_override=0)} t")
+        st.metric("Massa desviada", f"{formatar_br(massa_compostada_atual, auto_precision=False, casas_override=0)} t")
         st.metric("Emissões evitadas", f"{formatar_br(evitado_atual, auto_precision=False, casas_override=2)} tCO₂e")
         st.metric("Receita", f"R$ {formatar_br(receita_atual, auto_precision=False, casas_override=2)}")
         st.caption(f"Cobertura nacional: {formatar_br(pct_seletiva_brasil, auto_precision=False, casas_override=2)}%")
