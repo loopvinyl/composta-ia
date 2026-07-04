@@ -1163,7 +1163,7 @@ with tab_ia:
                         st.error(f"Erro na simulação: {e}")
 
     # =========================================================
-    # SEÇÃO 3: CENÁRIOS DE EXPANSÃO DA COMPOSTAGEM (REMODELADA)
+    # SEÇÃO 3: CENÁRIOS DE EXPANSÃO DA COMPOSTAGEM (COM TEXTO REFINADO)
     # =========================================================
     st.markdown("---")
     st.subheader("🌍 Cenários de Expansão da Compostagem no Brasil")
@@ -1207,25 +1207,20 @@ with tab_ia:
         # -----------------------------------------------------------------
         # 2.1 Calcular o percentual de coleta seletiva dos municípios que já têm coleta
         # -----------------------------------------------------------------
-        # Para cada município com coleta seletiva, calcular a massa total de RSU
         df_total_mun = df_clean.groupby(COL_MUNICIPIO).agg({COL_MASSA: 'sum'}).reset_index()
         df_total_mun.rename(columns={COL_MASSA: 'Massa_Total_RSU'}, inplace=True)
 
-        # Para cada município com coleta seletiva, calcular a massa de orgânicos coletada seletivamente
         df_org_sum = df_org.groupby(COL_MUNICIPIO).agg({COL_MASSA: 'sum'}).reset_index()
         df_org_sum.rename(columns={COL_MASSA: 'Massa_Seletiva_Organicos'}, inplace=True)
 
-        # Juntar e calcular o percentual de coleta seletiva sobre a massa total
         df_pct_seletiva = pd.merge(df_total_mun, df_org_sum, on=COL_MUNICIPIO, how='inner')
         df_pct_seletiva['Pct_Seletiva'] = (df_pct_seletiva['Massa_Seletiva_Organicos'] / df_pct_seletiva['Massa_Total_RSU']) * 100
         df_pct_seletiva['Pct_Seletiva'] = df_pct_seletiva['Pct_Seletiva'].fillna(0).round(2)
 
-        # Adicionar UF para referência (corrigido)
         df_uf_mun2 = df_clean[[COL_MUNICIPIO, COL_UF]].drop_duplicates(subset=[COL_MUNICIPIO])
         df_uf_mun2 = df_uf_mun2.rename(columns={COL_UF: 'UF'})
         df_pct_seletiva = pd.merge(df_pct_seletiva, df_uf_mun2, on=COL_MUNICIPIO, how='left')
 
-        # Se a coluna 'UF' não existir por algum motivo, criamos uma coluna vazia
         if 'UF' not in df_pct_seletiva.columns:
             df_pct_seletiva['UF'] = ''
 
@@ -1255,9 +1250,7 @@ with tab_ia:
             use_container_width=True
         )
 
-        # Adicionar a tabela com os percentuais de coleta seletiva (com verificação de coluna UF)
         with st.expander("📋 Percentual de coleta seletiva dos municípios com coleta seletiva"):
-            # Define as colunas a exibir
             cols_to_show = ['MUNICÍPIO', 'Massa_Total_RSU', 'Massa_Seletiva_Organicos', 'Pct_Seletiva']
             if 'UF' in df_pct_seletiva.columns:
                 cols_to_show.insert(1, 'UF')
@@ -1303,22 +1296,12 @@ with tab_ia:
         st.caption(f"Percentual de compostagem sobre o total de orgânicos: {formatar_br(pct_compost_real, auto_precision=False, casas_override=2)}%")
 
         # -----------------------------------------------------------------
-        # 5. Cenário 2 – Expansão da coleta seletiva para novos municípios
+        # 5. Cenário 2 – Expansão da coleta seletiva para novos municípios (COM TEXTO REFINADO)
         # -----------------------------------------------------------------
         st.markdown("---")
         st.subheader("📌 Cenário 2 – Expansão da coleta seletiva para novos municípios")
 
-        st.markdown("""
-        Este cenário considera a implementação da coleta seletiva de orgânicos em municípios que atualmente não a possuem.
-
-        **Metodologia:**
-        - **Realista**: utiliza o **1º quartil (25%)** dos percentuais de coleta seletiva (massa de orgânicos / massa total de RSU) dos municípios que já possuem coleta seletiva.
-        - **Otimista**: utiliza a **média** dos percentuais de coleta seletiva dos municípios que já possuem coleta seletiva.
-
-        A **massa adicional desviada** é calculada aplicando a meta de cobertura à massa total de RSU dos municípios sem coleta seletiva. Dessa massa adicional coletada seletivamente, uma fração é efetivamente compostada (usando o percentual real de compostagem `pct_compost_real`).
-        """)
-
-        # Identificar municípios sem coleta seletiva
+        # Identificar municípios sem coleta seletiva para obter os números
         df_total_geral = df_clean.groupby(COL_MUNICIPIO).agg({
             COL_MASSA: 'sum',
             COL_UF: 'first'
@@ -1328,6 +1311,24 @@ with tab_ia:
         municipios_com_seletiva = df_mun_cenario['MUNICÍPIO'].unique()
         df_sem_seletiva = df_total_geral[~df_total_geral[COL_MUNICIPIO].isin(municipios_com_seletiva)]
         massa_sem_seletiva = df_sem_seletiva['Massa_Total_Geral'].sum()
+        num_sem_seletiva = len(df_sem_seletiva)
+        num_com_seletiva = len(municipios_com_seletiva)
+
+        # Texto descritivo com os números
+        st.markdown(f"""
+        Este cenário considera a implementação da coleta seletiva de orgânicos em municípios que atualmente não a possuem.
+
+        **Contexto atual:**
+        - **{num_com_seletiva} municípios** já possuem coleta seletiva de orgânicos.
+        - **{num_sem_seletiva} municípios** ainda não possuem essa coleta.
+        - Esses {num_sem_seletiva} municípios geram **{formatar_br(massa_sem_seletiva, auto_precision=False, casas_override=0)} t/ano** de resíduos sólidos urbanos.
+
+        A meta de cobertura (percentual da massa total que será coletada seletivamente) é definida com base nos percentuais dos municípios que já possuem coleta seletiva:
+        - **Realista**: utiliza o **1º quartil (25%)** dos percentuais de coleta seletiva.
+        - **Otimista**: utiliza a **média** dos percentuais de coleta seletiva.
+
+        A **massa adicional desviada** é calculada aplicando a meta de cobertura à massa total dos municípios sem coleta seletiva. Dessa massa adicional coletada seletivamente, uma fração é efetivamente compostada (usando o percentual real de compostagem **{formatar_br(pct_compost_real, auto_precision=False, casas_override=2)}%** observado nos municípios que já possuem coleta seletiva).
+        """)
 
         if massa_sem_seletiva == 0:
             st.info("✅ Todos os municípios já possuem coleta seletiva de orgânicos. Não há expansão possível.")
