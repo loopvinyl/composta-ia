@@ -503,7 +503,7 @@ with tab_tradicional:
         lambda x: classificador_ia.prever(x, threshold=0.3) if pd.notna(x) else "Indefinido"
     )
     agg_grafico = df_mun_dest.groupby('destino_agrupado')['MASSA_FLOAT'].sum().reset_index()
-    agg_grafico = agg_grafico.sort_values('MASSA_FLOAT', ascending=False).head(8)  # Top 8 destinos
+    agg_grafico = agg_grafico.sort_values('MASSA_FLOAT', ascending=False).head(8)
 
     fig_dest, ax_dest = plt.subplots(figsize=(8, 6))
     cores = plt.cm.Set3(np.linspace(0, 1, len(agg_grafico)))
@@ -557,7 +557,6 @@ with tab_tradicional:
         massa_total_dist = df_dist["MASSA_FLOAT"].sum()
         st.markdown(f"### Total de resíduos coletados: **{formatar_br(massa_total_dist, auto_precision=False, casas_override=0)} t**")
 
-        # Agregação por destino
         agg_destino = df_dist.groupby(COL_DESTINO)["MASSA_FLOAT"].sum().reset_index()
         agg_destino = agg_destino.sort_values("MASSA_FLOAT", ascending=False)
         agg_destino["Percentual (%)"] = (agg_destino["MASSA_FLOAT"] / massa_total_dist) * 100 if massa_total_dist > 0 else 0
@@ -569,7 +568,6 @@ with tab_tradicional:
             use_container_width=True
         )
 
-        # Gráfico de barras horizontais dos principais destinos
         st.markdown("#### 📊 Principais destinos (gráfico)")
         top_destinos = agg_destino.head(10)
         fig, ax = plt.subplots(figsize=(10, 6))
@@ -613,7 +611,6 @@ with tab_tradicional:
                 use_container_width=True
             )
         with col2:
-            # Gráfico de barras dos estados
             fig, ax = plt.subplots(figsize=(6, 8))
             top_estados = agg_estados.head(10)
             ax.barh(top_estados[COL_UF], top_estados["MASSA_FLOAT"], color='forestgreen')
@@ -683,7 +680,6 @@ with tab_tradicional:
                         evitado_20anos = co2eq_aterro - co2eq_compostagem
                         receita_anual = (evitado_20anos / ANOS_PROJECAO) * preco * cambio
 
-                    # Calcula percentual de orgânicos na massa total do município
                     massa_total_municipio = df_clean[df_clean[COL_MUNICIPIO] == mun]['MASSA_COLETADA'].sum()
                     pct_org = (massa_total_local / massa_total_municipio) * 100 if massa_total_municipio > 0 else 0
 
@@ -719,7 +715,7 @@ with tab_tradicional:
                 """)
 
     # =========================================================
-    # 5. ♻️ ORGÂNICOS (com DOC/k dinâmico)
+    # 5. ♻️ ORGÂNICOS (Apenas tabelas e gráficos, SEM emissões detalhadas)
     # =========================================================
     st.markdown("---")
     st.subheader(f"♻️ Destinação da Coleta Seletiva de Resíduos Orgânicos ({ano_selecionado})")
@@ -797,82 +793,8 @@ with tab_tradicional:
         df_resumo = pd.DataFrame(linhas)
         st.dataframe(df_resumo, use_container_width=True)
 
-        # Emissões detalhadas
-        st.subheader("🔥 Emissões detalhadas (Orgânicos) – Metodologia UNFCCC")
-        df_org_dest = df_organicos.groupby(COL_DESTINO)["MASSA_FLOAT"].sum().reset_index()
-        df_org_dest["%"] = (df_org_dest["MASSA_FLOAT"] / total_organicos) * 100 if total_organicos > 0 else 0
-        df_org_dest = df_org_dest.sort_values("%", ascending=False)
-        df_org_dest["MCF"] = df_org_dest[COL_DESTINO].apply(lambda x: determinar_mcf_por_destino(x, 'organico'))
-        
-        resultados = []
-        co2eq_aterro_total = 0.0
-        massa_aterro_total = 0.0
+        # O BLOCO DE "🔥 Emissões detalhadas (Orgânicos)" FOI REMOVIDO AQUI
 
-        doc_pond, k_pond = calcular_doc_k_ponderado(df_mun_dest)
-
-        for _, row in df_org_dest.iterrows():
-            massa_t, mcf = row["MASSA_FLOAT"], row["MCF"]
-            if mcf > 0 and massa_t > 0:
-                co2eq_aterro = calcular_co2eq_aterro_20anos(massa_t, mcf, k_pond, doc_pond)
-                co2eq_aterro_total += co2eq_aterro
-                massa_aterro_total += massa_t
-                resultados.append({
-                    "Tipo de Unidade (SNIS)": row[COL_DESTINO],
-                    "Massa (t)": formatar_numero_br(massa_t),
-                    "MCF": formatar_numero_br(mcf),
-                    "CO₂e aterro (20 anos)": formatar_numero_br(co2eq_aterro)
-                })
-
-        if resultados:
-            st.dataframe(pd.DataFrame(resultados), use_container_width=True)
-
-            co2eq_compostagem = calcular_co2eq_compostagem_UNFCCC(massa_aterro_total)
-            evitado = co2eq_aterro_total - co2eq_compostagem
-
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Massa em aterros", formatar_massa_br(massa_aterro_total))
-            col2.metric("CO₂e aterro (20 anos)", f"{formatar_br(co2eq_aterro_total, auto_precision=False, casas_override=2)} tCO₂e")
-            col3.metric("CO₂e compostagem (20 anos)", f"{formatar_br(co2eq_compostagem, auto_precision=False, casas_override=2)} tCO₂e")
-            col4.metric("Emissões Evitadas", f"{formatar_br(evitado, auto_precision=False, casas_override=2)} tCO₂e")
-
-            # Potencial de créditos de carbono
-            st.markdown("---")
-            st.subheader("💰 Potencial de Créditos de Carbono (Compostagem - UNFCCC)")
-
-            with st.container():
-                st.markdown("### 🌍 Cotações de Mercado")
-                col_cot1, col_cot2, col_cot3 = st.columns(3)
-                with col_cot1:
-                    if st.button("🔄 Atualizar Cotações", key="atualizar_cotacoes_org"):
-                        preco, moeda, _, _, _ = obter_cotacao_carbono()
-                        cambio, moeda_r, _, _ = obter_cotacao_euro_real()
-                        st.session_state.preco_carbono = preco
-                        st.session_state.moeda_carbono = moeda
-                        st.session_state.taxa_cambio = cambio
-                        st.session_state.moeda_real = moeda_r
-                        st.rerun()
-                preco = st.session_state.preco_carbono
-                moeda = st.session_state.moeda_carbono
-                cambio = st.session_state.taxa_cambio
-                with col_cot2:
-                    st.metric("Carbono", f"{moeda} {formatar_br(preco)}/tCO₂e")
-                with col_cot3:
-                    st.metric("Câmbio EUR/BRL", f"R$ {formatar_br(cambio)}")
-                st.metric("Preço em R$", f"R$ {formatar_br(preco * cambio)}/tCO₂e")
-
-            valor_total_eur = calcular_valor_creditos(evitado, preco, "€")
-            valor_total_brl = calcular_valor_creditos(evitado, preco, "R$", cambio)
-
-            st.metric("Valor total em Reais (R$)", f"R$ {formatar_br(valor_total_brl)}")
-            st.caption(f"Equivalente a {moeda} {formatar_br(valor_total_eur)}")
-
-            st.info("ℹ️ **Metodologia:**\n\n"
-                    "- **Baseline (aterro)**: UNFCCC A6.4-AMT-003 – CH₄ apenas, φ=0.85, OX=0.383, GWP_CH4=28.\n"
-                    "- **Cenário de compostagem**: UNFCCC TOOL13 / AMS-III.F – CH₄=0.002, N₂O=0.0002, GWP_CH4=28, GWP_N2O=265.\n"
-                    "- **DOC e k**: ponderados pela caracterização dos resíduos (quando disponível).\n"
-                    "- As quantidades exibidas na tela são arredondadas para duas casas decimais.")
-        else:
-            st.success("✅ Nenhum orgânico destinado a aterro.")
     else:
         st.info("ℹ️ Sem registros de coleta seletiva de orgânicos.")
 
@@ -902,7 +824,6 @@ with tab_tradicional:
 
         st.markdown(f"### Total de podas e galhadas coletadas: **{formatar_br(total_podas, auto_precision=False, casas_override=2)} t**")
 
-        # Resumo rápido
         col1, col2 = st.columns(2)
         with col1:
             st.metric("Participação no total", f"{formatar_br((total_podas/massa_total_geral_podas)*100 if massa_total_geral_podas>0 else 0, auto_precision=False, casas_override=2)}%")
@@ -956,7 +877,7 @@ with tab_tradicional:
     DOC/k: ponderados pela caracterização dos resíduos do SNIS (quando disponível) | Cotações em tempo real via Yahoo Finance e APIs de câmbio.
     """)
 
-# ======================== ABA DE IA (mantida idêntica) ========================
+# ======================== ABA DE IA (MANTIDA IDÊNTICA) ========================
 with tab_ia:
     st.header("🧠 Insights com Inteligência Artificial")
     
