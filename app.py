@@ -285,6 +285,120 @@ def determinar_mcf_por_destino(destino, tipo_residuo='organico'):
     return mcf_base
 
 # =========================================================
+# FUNÇÕES DE PROJEÇÃO PER CAPITA E SIMULAÇÃO DE CENÁRIOS
+# =========================================================
+def projetar_residuos_per_capita(populacao_atual, massa_anual_atual, 
+                                 taxa_crescimento_pop=0.01, anos=10):
+    """
+    Projeta a geração de resíduos com base no crescimento populacional.
+    Assume que a geração per capita permanece constante.
+    """
+    if populacao_atual <= 0 or massa_anual_atual <= 0:
+        raise ValueError("População e massa devem ser maiores que zero.")
+    
+    per_capita = massa_anual_atual / populacao_atual
+    resultados = []
+    pop = populacao_atual
+    massa = massa_anual_atual
+    
+    for i in range(1, anos + 1):
+        pop = pop * (1 + taxa_crescimento_pop)
+        massa = pop * per_capita
+        resultados.append({
+            'Ano': datetime.now().year + i,
+            'Populacao_Projetada': pop,
+            'Massa_Projetada_ton': massa
+        })
+    return pd.DataFrame(resultados)
+
+def plot_projecao_residuos(df_proj):
+    """Gera gráfico de duplo eixo: população e massa de resíduos."""
+    fig, ax1 = plt.subplots(figsize=(10, 6))
+    
+    ax1.set_xlabel('Ano')
+    ax1.set_ylabel('População (habitantes)', color='blue')
+    ax1.plot(df_proj['Ano'], df_proj['Populacao_Projetada'], 'o-', color='blue', linewidth=2, label='População')
+    ax1.tick_params(axis='y', labelcolor='blue')
+    
+    ax2 = ax1.twinx()
+    ax2.set_ylabel('Massa de Resíduos (toneladas/ano)', color='green')
+    ax2.plot(df_proj['Ano'], df_proj['Massa_Projetada_ton'], 's-', color='green', linewidth=2, label='Massa')
+    ax2.tick_params(axis='y', labelcolor='green')
+    
+    # Anotações
+    for i, row in df_proj.iterrows():
+        ax1.annotate(f"{row['Populacao_Projetada']:,.0f}", 
+                    (row['Ano'], row['Populacao_Projetada']), 
+                    textcoords="offset points", xytext=(0,10), ha='center', fontsize=8, color='blue')
+        ax2.annotate(f"{row['Massa_Projetada_ton']:,.0f}", 
+                    (row['Ano'], row['Massa_Projetada_ton']), 
+                    textcoords="offset points", xytext=(0,-15), ha='center', fontsize=8, color='green')
+    
+    plt.title('Projeção de População e Geração de Resíduos', fontsize=14)
+    fig.tight_layout()
+    return fig
+
+def simular_cenarios_compostagem(massa_aterro_ano, 
+                                 co2_evitado_por_tonelada, 
+                                 preco_carbono_atual, 
+                                 taxa_cambio,
+                                 anos_projecao=10, 
+                                 taxa_crescimento_compostagem=0.10,
+                                 inflacao_carbono=0.02):
+    """
+    Simula o ganho financeiro ao aumentar gradualmente a compostagem.
+    """
+    if massa_aterro_ano <= 0:
+        raise ValueError("Massa de aterro deve ser maior que zero.")
+    
+    resultados = []
+    massa_estatica = massa_aterro_ano
+    
+    for ano in range(1, anos_projecao + 1):
+        fator_desvio = (1 + taxa_crescimento_compostagem) ** (ano - 1)
+        massa_projetada = massa_aterro_ano * fator_desvio
+        
+        preco_atualizado = preco_carbono_atual * (1 + inflacao_carbono) ** (ano - 1)
+        
+        co2_evitado_estatico = massa_estatica * co2_evitado_por_tonelada
+        co2_evitado_projetado = massa_projetada * co2_evitado_por_tonelada
+        
+        receita_estatico_brl = co2_evitado_estatico * preco_atualizado * taxa_cambio
+        receita_projetado_brl = co2_evitado_projetado * preco_atualizado * taxa_cambio
+        
+        ganho_incremental = receita_projetado_brl - receita_estatico_brl
+        
+        resultados.append({
+            'Ano': datetime.now().year + ano,
+            'Massa_Desviada_Acumulada(t)': massa_projetada,
+            'Receita_Anual_BRL': receita_projetado_brl,
+            'Ganho_Adicional_BRL': ganho_incremental
+        })
+    
+    df = pd.DataFrame(resultados)
+    df['Receita_Acumulada_BRL'] = df['Receita_Anual_BRL'].cumsum()
+    return df
+
+def plot_simulacao_compostagem(df_sim):
+    """Gera gráfico da receita acumulada com créditos de carbono."""
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    ax.plot(df_sim['Ano'], df_sim['Receita_Acumulada_BRL'], 'o-', color='green', linewidth=2, label='Receita Acumulada')
+    ax.fill_between(df_sim['Ano'], 0, df_sim['Receita_Acumulada_BRL'], alpha=0.3, color='lightgreen')
+    
+    for i, row in df_sim.iterrows():
+        ax.annotate(f"R$ {row['Receita_Acumulada_BRL']:,.0f}", 
+                    (row['Ano'], row['Receita_Acumulada_BRL']), 
+                    textcoords="offset points", xytext=(0,10), ha='center', fontsize=8)
+    
+    ax.set_xlabel('Ano')
+    ax.set_ylabel('Receita Acumulada (R$)')
+    ax.set_title('Projeção de Ganhos com Créditos de Carbono (Compostagem)', fontsize=14)
+    ax.grid(True, linestyle='--', alpha=0.5)
+    ax.legend()
+    return fig
+
+# =========================================================
 # CARREGAMENTO E PREPARAÇÃO DOS DADOS
 # =========================================================
 @st.cache_data
@@ -769,8 +883,8 @@ with tab_ia:
     st.markdown("""
     Aqui você pode explorar análises avançadas utilizando técnicas de Inteligência Artificial:
     - **Classificação de destinos** com Processamento de Linguagem Natural (PLN)
-    - **Clusterização de municípios** por perfil de resíduos (K-Means)
-    - **Previsão de geração de resíduos** (Random Forest)
+    - **Projeção de geração de resíduos per capita** com base no crescimento populacional
+    - **Simulação de cenários de compostagem** e potencial de ganhos com créditos de carbono
     """)
     
     # =========================================================
@@ -857,111 +971,172 @@ with tab_ia:
     
     if st.button("🔍 Executar Clusterização"):
         with st.spinner("Agrupando municípios por similaridade..."):
-            # Importa as funções de clusterização
-            from utils.ia_clustering import (
-                preparar_dados_clusterizacao,
-                clusterizar_municipios,
-                aplicar_pca,
-                plot_clusters,
-                resumo_clusters
-            )
-            
-            X, df_cluster = preparar_dados_clusterizacao(df_clean)
-            if X.empty:
-                st.warning("Dados insuficientes para clusterização.")
-            else:
-                # Aplica clusterização
-                n_clusters = st.slider("Número de clusters:", 2, 6, 4)
-                labels, kmeans, scaler = clusterizar_municipios(X, n_clusters=n_clusters)
-                df_cluster['Cluster'] = labels
+            try:
+                from utils.ia_clustering import (
+                    preparar_dados_clusterizacao,
+                    clusterizar_municipios,
+                    aplicar_pca,
+                    plot_clusters,
+                    resumo_clusters
+                )
                 
-                # Gráfico PCA
-                X_pca, pca = aplicar_pca(X)
-                fig = plot_clusters(X_pca, labels, df_cluster)
-                st.pyplot(fig)
-                
-                # Resumo dos clusters
-                st.subheader("📊 Resumo dos Clusters")
-                resumo = resumo_clusters(df_cluster, labels)
-                st.dataframe(resumo.style.format({
-                    'Massa_Media': '{:.0f}',
-                    'Massa_Mediana': '{:.0f}',
-                    'Massa_Total_Cluster': '{:.0f}',
-                    'Rotas_Media': '{:.1f}',
-                    'Pct_Aterro_Media': '{:.1f}',
-                    'Pct_Compostagem_Media': '{:.1f}'
-                }))
-                
-                # Lista de municípios por cluster
-                st.subheader("📍 Municípios por Cluster")
-                for cluster in sorted(df_cluster['Cluster'].unique()):
-                    with st.expander(f"Cluster {cluster+1}"):
-                        municipios_cluster = df_cluster[df_cluster['Cluster'] == cluster][['MUNICÍPIO', 'UF', 'Massa_Total']]
-                        municipios_cluster = municipios_cluster.sort_values('Massa_Total', ascending=False)
-                        st.dataframe(municipios_cluster.style.format({
-                            'Massa_Total': '{:.0f}'
-                        }), use_container_width=True)
-    
-    # =========================================================
-    # PREVISÃO DE GERAÇÃO DE RESÍDUOS (RANDOM FOREST)
-    # =========================================================
-    st.markdown("---")
-    st.subheader("🔮 Previsão de Geração de Resíduos (Random Forest)")
-    
-    st.markdown("""
-    Utilizamos **Random Forest** para projetar a geração de RSU para os próximos anos.
-    O modelo considera tendências históricas de massa coletada, população e geração per capita.
-    """)
-    
-    # Seleciona um município para previsão
-    municipio_previsao = st.selectbox(
-        "Selecione um município para previsão:",
-        [""] + sorted(df_clean[COL_MUNICIPIO].unique()),
-        key="previsao_municipio"
-    )
-    
-    if municipio_previsao and st.button("🔮 Executar Previsão"):
-        with st.spinner(f"Treinando modelo para {municipio_previsao}..."):
-            # Importa as funções de previsão
-            from utils.ia_previsao import (
-                preparar_dados_previsao,
-                treinar_modelo_previsao,
-                prever_futuro,
-                plot_previsao
-            )
-            
-            df_mun_previsao = df_clean[df_clean[COL_MUNICIPIO] == municipio_previsao]
-            if df_mun_previsao.empty:
-                st.warning("Dados insuficientes para este município.")
-            else:
-                try:
-                    # Treina o modelo
-                    model, scaler, df_hist, mae, r2 = treinar_modelo_previsao(df_mun_previsao)
+                X, df_cluster = preparar_dados_clusterizacao(df_clean)
+                if X.empty:
+                    st.warning("Dados insuficientes para clusterização.")
+                else:
+                    n_clusters = st.slider("Número de clusters:", 2, 6, 4)
+                    labels, kmeans, scaler = clusterizar_municipios(X, n_clusters=n_clusters)
+                    df_cluster['Cluster'] = labels
                     
-                    # Gera previsões
-                    anos_futuros = list(range(2025, 2031))
-                    df_futuro = prever_futuro(model, scaler, df_hist, anos_futuros)
-                    
-                    # Métricas
-                    col1, col2 = st.columns(2)
-                    col1.metric("MAE (Erro médio absoluto)", f"{mae:.2f} t")
-                    col2.metric("R² (Coeficiente de determinação)", f"{r2:.2f}")
-                    
-                    # Gráfico
-                    fig = plot_previsao(df_hist, df_futuro)
+                    X_pca, pca = aplicar_pca(X)
+                    fig = plot_clusters(X_pca, labels, df_cluster)
                     st.pyplot(fig)
                     
-                    # Tabela de previsões
-                    st.subheader("📋 Previsões Anuais")
-                    st.dataframe(df_futuro.style.format({
-                        'Populacao_Estimada': '{:,.0f}',
-                        'Geracao_per_capita_Estimada': '{:.2f}',
-                        'Massa_Prevista (t)': '{:,.0f}'
+                    st.subheader("📊 Resumo dos Clusters")
+                    resumo = resumo_clusters(df_cluster, labels)
+                    st.dataframe(resumo.style.format({
+                        'Massa_Media': '{:.0f}',
+                        'Massa_Mediana': '{:.0f}',
+                        'Massa_Total_Cluster': '{:.0f}',
+                        'Rotas_Media': '{:.1f}',
+                        'Pct_Aterro_Media': '{:.1f}',
+                        'Pct_Compostagem_Media': '{:.1f}'
                     }))
                     
-                except Exception as e:
-                    st.error(f"Erro ao treinar modelo: {e}")
-                    st.info("ℹ️ Tente selecionar um município com mais dados históricos.")
+                    st.subheader("📍 Municípios por Cluster")
+                    for cluster in sorted(df_cluster['Cluster'].unique()):
+                        with st.expander(f"Cluster {cluster+1}"):
+                            municipios_cluster = df_cluster[df_cluster['Cluster'] == cluster][['MUNICÍPIO', 'UF', 'Massa_Total']]
+                            municipios_cluster = municipios_cluster.sort_values('Massa_Total', ascending=False)
+                            st.dataframe(municipios_cluster.style.format({
+                                'Massa_Total': '{:.0f}'
+                            }), use_container_width=True)
+            except Exception as e:
+                st.error(f"Erro na clusterização: {e}")
+                st.info("ℹ️ Verifique se o arquivo `utils/ia_clustering.py` está atualizado.")
+    
+    # =========================================================
+    # SEÇÃO 1: PREVISÃO DE GERAÇÃO PER CAPITA
+    # =========================================================
+    st.markdown("---")
+    st.subheader("📈 Previsão de Geração de Resíduos por Habitante")
+    
+    st.markdown("""
+    Projeta a quantidade de resíduos que o município precisará gerenciar com base no crescimento populacional.
+    A geração per capita é mantida constante a partir dos dados atuais do SNIS.
+    """)
+    
+    municipio_proj = st.selectbox(
+        "Selecione o município para projeção:",
+        sorted(df_clean[COL_MUNICIPIO].unique()),
+        key="proj_municipio"
+    )
+    
+    if municipio_proj:
+        df_mun_proj = df_clean[df_clean[COL_MUNICIPIO] == municipio_proj]
+        massa_atual = df_mun_proj['MASSA_COLETADA'].sum()
+        
+        if massa_atual <= 0:
+            st.warning("Este município não tem dados de massa coletada.")
+        else:
+            pop_atual = st.number_input(
+                f"População atual do município (habitantes) – {municipio_proj}:", 
+                min_value=100, value=50000, step=1000
+            )
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                taxa_pop = st.slider("Taxa de crescimento populacional anual (%)", 0.0, 5.0, 1.0, 0.1) / 100
+            with col2:
+                anos_proj = st.slider("Anos de projeção", 5, 30, 10)
+            
+            if st.button("📊 Projetar Resíduos per Capita"):
+                with st.spinner("Calculando projeções..."):
+                    try:
+                        df_proj = projetar_residuos_per_capita(pop_atual, massa_atual, taxa_pop, anos_proj)
+                        fig = plot_projecao_residuos(df_proj)
+                        st.pyplot(fig)
+                        
+                        st.dataframe(df_proj.style.format({
+                            'Populacao_Projetada': '{:,.0f}',
+                            'Massa_Projetada_ton': '{:,.0f}'
+                        }))
+                        
+                        ultimo = df_proj.iloc[-1]
+                        st.success(f"📌 **Em {ultimo['Ano']:.0f}, o município precisará gerenciar aproximadamente {ultimo['Massa_Projetada_ton']:,.0f} toneladas de resíduos.**")
+                    except Exception as e:
+                        st.error(f"Erro na projeção: {e}")
+    
+    # =========================================================
+    # SEÇÃO 2: SIMULAÇÃO DE CENÁRIOS DE COMPOSTAGEM
+    # =========================================================
+    st.markdown("---")
+    st.subheader("💰 Simulador: Quanto o município pode ganhar com créditos de carbono?")
+    
+    st.markdown("""
+    Simule o impacto financeiro de **aumentar gradualmente** a quantidade de orgânicos desviada do aterro para a compostagem.
+    """)
+    
+    municipio_sim = st.selectbox(
+        "Selecione um município para a simulação:",
+        sorted(df_clean[COL_MUNICIPIO].unique()),
+        key="sim_municipio"
+    )
+    
+    if municipio_sim:
+        df_mun_sim = df_clean[df_clean[COL_MUNICIPIO] == municipio_sim]
+        
+        df_mun_sim['MCF'] = df_mun_sim[COL_DESTINO].apply(determinar_mcf_por_destino)
+        df_org_aterro = df_mun_sim[df_mun_sim['MCF'] > 0]
+        massa_aterro_atual = df_org_aterro['MASSA_COLETADA'].sum()
+        
+        if massa_aterro_atual <= 0:
+            st.warning("Este município não envia resíduos orgânicos para aterro (já utiliza compostagem ou reciclagem total).")
+        else:
+            col1, col2 = st.columns(2)
+            with col1:
+                taxa_crescimento = st.slider("Taxa anual de aumento da compostagem (%)", 5, 30, 15, 1) / 100
+                anos_sim = st.slider("Anos de projeção", 5, 20, 10)
+            with col2:
+                inflacao_carbono = st.slider("Inflação anual do preço do carbono (%)", 0, 5, 2, 1) / 100
+            
+            if st.button("🚀 Executar Simulação de Cenários"):
+                with st.spinner("Calculando projeções..."):
+                    try:
+                        doc_pond, k_pond = calcular_doc_k_ponderado(df_mun_sim)
+                        co2_aterro = calcular_co2eq_aterro_20anos(massa_aterro_atual, 0.8, k_pond, doc_pond)
+                        co2_compostagem = calcular_co2eq_compostagem_UNFCCC(massa_aterro_atual)
+                        co2_evitado_por_t = (co2_aterro - co2_compostagem) / massa_aterro_atual if massa_aterro_atual > 0 else 0
+                        
+                        if co2_evitado_por_t <= 0:
+                            st.warning("O coeficiente de emissões evitadas é zero ou negativo. Verifique os cálculos.")
+                        else:
+                            df_sim = simular_cenarios_compostagem(
+                                massa_aterro_atual,
+                                co2_evitado_por_t,
+                                st.session_state.preco_carbono,
+                                st.session_state.taxa_cambio,
+                                anos_projecao=anos_sim,
+                                taxa_crescimento_compostagem=taxa_crescimento,
+                                inflacao_carbono=inflacao_carbono
+                            )
+                            
+                            fig = plot_simulacao_compostagem(df_sim)
+                            st.pyplot(fig)
+                            
+                            st.subheader("📈 Detalhamento Anual")
+                            st.dataframe(df_sim.style.format({
+                                'Massa_Desviada_Acumulada(t)': '{:,.0f}',
+                                'Receita_Anual_BRL': 'R$ {:,.2f}',
+                                'Ganho_Adicional_BRL': 'R$ {:,.2f}',
+                                'Receita_Acumulada_BRL': 'R$ {:,.2f}'
+                            }))
+                            
+                            valor_final = df_sim['Receita_Acumulada_BRL'].iloc[-1]
+                            st.success(f"💰 **Potencial total em {anos_sim} anos: R$ {valor_final:,.2f}**")
+                            st.info("ℹ️ Esta simulação considera o aumento gradual da compostagem ano a ano, com base nos dados atuais do SNIS. O valor é acumulado.")
+                    except Exception as e:
+                        st.error(f"Erro na simulação: {e}")
 
 # =========================================================
 # RODAPÉ GERAL DO APP
