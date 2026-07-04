@@ -509,14 +509,13 @@ with tab_tradicional:
     cores = plt.cm.Set3(np.linspace(0, 1, len(agg_grafico)))
     wedges, texts, autotexts = ax_dest.pie(
         agg_grafico['MASSA_FLOAT'],
-        labels=None,  # Remove rótulos sobre a pizza
+        labels=None,
         autopct=lambda p: f'{p:.1f}%' if p > 1 else '',
         startangle=90,
         colors=cores,
         textprops={'fontsize': 9},
         pctdistance=0.7,
     )
-    # Adiciona legenda com os nomes das categorias
     ax_dest.legend(wedges, agg_grafico['destino_agrupado'],
                    title="Destino",
                    loc="center left",
@@ -892,7 +891,7 @@ with tab_tradicional:
     DOC/k: ponderados pela caracterização dos resíduos do SNIS (quando disponível) | Cotações em tempo real via Yahoo Finance e APIs de câmbio.
     """)
 
-# ======================== ABA DE IA (MANTIDA IDÊNTICA) ========================
+# ======================== ABA DE IA ========================
 with tab_ia:
     st.header("🧠 Insights com Inteligência Artificial")
     
@@ -906,7 +905,7 @@ with tab_ia:
     """)
     
     # =========================================================
-    # CLASSIFICAÇÃO DE DESTINOS (PLN)
+    # CLASSIFICAÇÃO DE DESTINOS (PLN) - COM GRÁFICO DE PIZZA CORRIGIDO
     # =========================================================
     st.subheader("📋 Classificação Inteligente de Destinos (PLN)")
     
@@ -945,7 +944,7 @@ with tab_ia:
     df_comparacao = pd.DataFrame(dados_comparacao)
     st.dataframe(df_comparacao, use_container_width=True, height=400)
     
-    # Distribuição dos destinos pela IA
+    # Distribuição dos destinos pela IA - GRÁFICO DE PIZZA COM LEGENDA
     st.subheader("📊 Distribuição Nacional de Destinos (Classificação por IA)")
     
     @st.cache_data
@@ -958,16 +957,26 @@ with tab_ia:
     contagem_ia = df_clean['destino_ia'].value_counts().reset_index()
     contagem_ia.columns = ['Destino (IA)', 'Quantidade']
     
-    fig1, ax1 = plt.subplots(figsize=(8, 6))
+    fig1, ax1 = plt.subplots(figsize=(10, 8))
     cores = plt.cm.Set3(np.linspace(0, 1, len(contagem_ia)))
-    ax1.pie(contagem_ia['Quantidade'], 
-            labels=contagem_ia['Destino (IA)'], 
-            autopct='%1.1f%%', 
-            startangle=90,
-            colors=cores,
-            textprops={'fontsize': 9})
+    wedges, texts, autotexts = ax1.pie(
+        contagem_ia['Quantidade'],
+        labels=None,
+        autopct=lambda p: f'{p:.1f}%' if p > 1 else '',
+        startangle=90,
+        colors=cores,
+        textprops={'fontsize': 9},
+        pctdistance=0.7,
+    )
+    ax1.legend(wedges, contagem_ia['Destino (IA)'],
+               title="Destino",
+               loc="center left",
+               bbox_to_anchor=(1, 0, 0.5, 1),
+               fontsize=9)
     ax1.axis('equal')
+    plt.tight_layout()
     st.pyplot(fig1)
+    plt.close(fig1)
     
     st.dataframe(
         contagem_ia.style.format({
@@ -1498,7 +1507,6 @@ with tab_ia:
     massa_seletiva_brasil = df_cobertura['Massa_Seletiva_Organicos'].sum()
     pct_seletiva_brasil = (massa_seletiva_brasil / massa_total_brasil) * 100 if massa_total_brasil > 0 else 0
 
-    # Média dos percentuais municipais (não ponderada pela massa)
     media_pct_municipios = df_cobertura[df_cobertura['Massa_Total'] > 0]['Pct_Seletiva'].mean()
 
     st.markdown("### 📊 Resumo Nacional")
@@ -1518,12 +1526,15 @@ with tab_ia:
     # =========================================================
     st.markdown("### 🏆 Destaques da Coleta Seletiva de Orgânicos")
 
-    df_com_seletiva = df_cobertura[df_cobertura['Possui_Seletiva']]
+    df_com_seletiva = df_cobertura[df_cobertura['Possui_Seletiva']].copy()
     if not df_com_seletiva.empty:
         col1, col2 = st.columns(2)
         with col1:
             st.markdown("#### 📊 Top 10 – Maior Percentual de Cobertura")
-            top_pct = df_com_seletiva.nlargest(10, 'Pct_Seletiva')[['MUNICÍPIO', 'UF', 'Massa_Seletiva_Organicos', 'Massa_Total', 'Pct_Seletiva']]
+            top_pct = df_com_seletiva.nlargest(10, 'Pct_Seletiva')
+            if 'UF' not in top_pct.columns:
+                top_pct['UF'] = ''
+            top_pct = top_pct[['MUNICÍPIO', 'UF', 'Massa_Seletiva_Organicos', 'Massa_Total', 'Pct_Seletiva']]
             st.dataframe(
                 top_pct.style.format({
                     'Massa_Seletiva_Organicos': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
@@ -1535,7 +1546,10 @@ with tab_ia:
             )
         with col2:
             st.markdown("#### 📊 Top 10 – Maior Massa Destinada à Compostagem")
-            top_massa = df_com_seletiva.nlargest(10, 'Massa_Seletiva_Organicos')[['MUNICÍPIO', 'UF', 'Massa_Seletiva_Organicos', 'Massa_Total', 'Pct_Seletiva']]
+            top_massa = df_com_seletiva.nlargest(10, 'Massa_Seletiva_Organicos')
+            if 'UF' not in top_massa.columns:
+                top_massa['UF'] = ''
+            top_massa = top_massa[['MUNICÍPIO', 'UF', 'Massa_Seletiva_Organicos', 'Massa_Total', 'Pct_Seletiva']]
             st.dataframe(
                 top_massa.style.format({
                     'Massa_Seletiva_Organicos': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
@@ -1562,9 +1576,8 @@ with tab_ia:
     # Gráfico de distribuição dos percentuais
     st.subheader("📊 Distribuição dos percentuais de cobertura")
     fig, ax = plt.subplots(figsize=(10, 6))
-    # Filtra municípios com massa > 0 e percentual > 0 para o histograma
     df_plot = df_cobertura[df_cobertura['Massa_Total'] > 0]
-    bins = np.linspace(0, 100, 21)  # 21 bins de 0 a 100%
+    bins = np.linspace(0, 100, 21)
     ax.hist(df_plot['Pct_Seletiva'], bins=bins, color='skyblue', edgecolor='black', alpha=0.7)
     ax.axvline(pct_seletiva_brasil, color='red', linestyle='--', label=f'Média nacional (massa): {pct_seletiva_brasil:.2f}%')
     ax.axvline(media_pct_municipios, color='green', linestyle='--', label=f'Média municipal: {media_pct_municipios:.2f}%')
@@ -1589,7 +1602,6 @@ with tab_ia:
     - **Cenário Otimista**: municípios sem coleta seletiva alcançam a **média** dos percentuais dos municípios que já possuem coleta seletiva.
     """)
 
-    # Calcular métricas para os cenários
     df_com_seletiva = df_cobertura[df_cobertura['Possui_Seletiva']]
     if not df_com_seletiva.empty and len(df_com_seletiva) >= 4:
         pct_25 = np.percentile(df_com_seletiva['Pct_Seletiva'], 25)
@@ -1601,26 +1613,20 @@ with tab_ia:
         pct_25 = 0
         pct_media = 0
 
-    # Massa adicional para cada cenário
     df_sem_seletiva = df_cobertura[~df_cobertura['Possui_Seletiva']]
     massa_sem_seletiva = df_sem_seletiva['Massa_Total'].sum()
 
-    # Cenário Realista (1º quartil)
     massa_adicional_realista = massa_sem_seletiva * (pct_25 / 100) if pct_25 > 0 else 0
-    # Cenário Otimista (média)
     massa_adicional_otimista = massa_sem_seletiva * (pct_media / 100) if pct_media > 0 else 0
 
-    # Emissões evitadas e receita para cada cenário
     doc_medio, k_medio = DOC_PADRAO, K_PADRAO
     co2_aterro_por_t = calcular_co2eq_aterro_20anos(1, 0.8, k_medio, doc_medio)
     co2_compost_por_t = calcular_co2eq_compostagem_UNFCCC(1)
     co2_evitado_por_t = co2_aterro_por_t - co2_compost_por_t
 
-    # Cenário Atual (já calculado anteriormente)
     evitado_atual = massa_seletiva_brasil * co2_evitado_por_t
     receita_atual = evitado_atual * st.session_state.preco_carbono * st.session_state.taxa_cambio
 
-    # Emissões evitadas adicionais e totais para cada cenário
     evitado_adicional_realista = massa_adicional_realista * co2_evitado_por_t
     evitado_total_realista = evitado_atual + evitado_adicional_realista
     receita_total_realista = receita_atual + (evitado_adicional_realista * st.session_state.preco_carbono * st.session_state.taxa_cambio)
@@ -1629,7 +1635,6 @@ with tab_ia:
     evitado_total_otimista = evitado_atual + evitado_adicional_otimista
     receita_total_otimista = receita_atual + (evitado_adicional_otimista * st.session_state.preco_carbono * st.session_state.taxa_cambio)
 
-    # Exibir resultados em três colunas
     col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown("#### 📉 Cenário Atual (Pessimista)")
@@ -1649,16 +1654,16 @@ with tab_ia:
         st.metric("Receita total", f"R$ {formatar_br(receita_total_otimista, auto_precision=False, casas_override=2)}")
         st.caption(f"Meta: {pct_media:.2f}% (média)")
 
-    # Exibir os municípios de referência (menores percentuais)
     with st.expander("📋 Municípios com menores percentuais de cobertura (referência para o cenário realista)"):
-        df_referencia = df_com_seletiva.nsmallest(10, 'Pct_Seletiva')[['MUNICÍPIO', 'Pct_Seletiva', 'Massa_Total']]
-        st.dataframe(
-            df_referencia.style.format({
-                'Pct_Seletiva': lambda x: formatar_br(x, auto_precision=False, casas_override=2) + '%',
-                'Massa_Total': lambda x: formatar_br(x, auto_precision=False, casas_override=0)
-            }),
-            use_container_width=True
-        )
+        if not df_com_seletiva.empty:
+            df_referencia = df_com_seletiva.nsmallest(10, 'Pct_Seletiva')[['MUNICÍPIO', 'UF', 'Pct_Seletiva', 'Massa_Total']]
+            st.dataframe(
+                df_referencia.style.format({
+                    'Pct_Seletiva': lambda x: formatar_br(x, auto_precision=False, casas_override=2) + '%',
+                    'Massa_Total': lambda x: formatar_br(x, auto_precision=False, casas_override=0)
+                }),
+                use_container_width=True
+            )
         st.caption(f"📌 O cenário realista usa o 1º quartil ({pct_25:.2f}%) como meta, baseado nos 25% menores percentuais.")
 
     st.info("""
