@@ -10,7 +10,6 @@ def preparar_dados_clusterizacao(df_municipios):
     """
     Prepara os dados dos municípios para clusterização.
     Detecta automaticamente as colunas de UF e destino.
-    Retorna X (features) e df_cluster (com os mesmos índices).
     """
     df = df_municipios.copy()
     
@@ -31,7 +30,6 @@ def preparar_dados_clusterizacao(df_municipios):
             col_destino = col
             break
     if col_destino is None:
-        # Fallback: primeira coluna com tipo object
         for col in df.columns:
             if df[col].dtype == 'object':
                 col_destino = col
@@ -39,30 +37,28 @@ def preparar_dados_clusterizacao(df_municipios):
         if col_destino is None:
             col_destino = df.columns[-1]
 
-    # --- AGRUPAMENTO POR MUNICÍPIO E UF (SEPARADO) ---
-    grupo = df.groupby(['MUNICÍPIO', col_uf])
-    
-    # Soma da massa
-    massa_total = grupo['MASSA_COLETADA'].sum().reset_index()
-    massa_total.rename(columns={'MASSA_COLETADA': 'Massa_Total'}, inplace=True)
-    
-    # Contagem de rotas
-    num_rotas = grupo.size().reset_index(name='Num_Rotas')
-    
-    # Concatenação de destinos (tratamento robusto)
+    # --- FUNÇÃO DE AGREGAÇÃO ROBUSTA PARA DESTINO ---
     def concat_destinos(series):
         strings = series.dropna().astype(str).str.strip()
         strings = strings[strings != '']
         return ','.join(strings.unique()) if not strings.empty else ''
+
+    # --- AGRUPAMENTO POR MUNICÍPIO E UF ---
+    grupo = df.groupby(['MUNICÍPIO', col_uf])
+    
+    massa_total = grupo['MASSA_COLETADA'].sum().reset_index()
+    massa_total.rename(columns={'MASSA_COLETADA': 'Massa_Total'}, inplace=True)
+    
+    num_rotas = grupo.size().reset_index(name='Num_Rotas')
     
     destinos = grupo[col_destino].apply(concat_destinos).reset_index(name='Destinos')
     
-    # --- JUNÇÃO DOS DATAFRAMES ---
     df_cluster = massa_total.merge(num_rotas, on=['MUNICÍPIO', col_uf])
     df_cluster = df_cluster.merge(destinos, on=['MUNICÍPIO', col_uf])
+    
     df_cluster.rename(columns={col_uf: 'UF'}, inplace=True)
     
-    # --- CÁLCULO DE INDICADORES (percentuais) ---
+    # --- CÁLCULO DE INDICADORES ---
     def calc_indicadores(grupo_municipio):
         destinos_series = grupo_municipio[col_destino].dropna().astype(str).str.lower()
         total = len(grupo_municipio)
@@ -80,20 +76,17 @@ def preparar_dados_clusterizacao(df_municipios):
     
     df_cluster = df_cluster.merge(indicadores, on=['MUNICÍPIO', 'UF'])
     
-    # --- FILTRO: REMOVER LINHAS COM MASSA ZERO OU NEGATIVA ---
-    df_cluster = df_cluster[df_cluster['Massa_Total'] > 0].reset_index(drop=True)
-    
     # --- SELEÇÃO DAS FEATURES ---
     features = ['Massa_Total', 'Num_Rotas', 'Pct_Aterro', 'Pct_Compostagem']
     X = df_cluster[features].copy()
     
-    # Trata valores faltantes
     X = X.fillna(0)
+    X = X[X['Massa_Total'] > 0]
     
     return X, df_cluster
 
 def clusterizar_municipios(X, n_clusters=4, random_state=42):
-    """Aplica K-Means clusterização nos dados dos municípios."""
+    """Aplica K-Means clusterização."""
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
     kmeans = KMeans(n_clusters=n_clusters, random_state=random_state, n_init=10)
@@ -101,7 +94,7 @@ def clusterizar_municipios(X, n_clusters=4, random_state=42):
     return labels, kmeans, scaler
 
 def aplicar_pca(X, n_components=2, random_state=42):
-    """Aplica PCA para redução de dimensionalidade (visualização 2D)."""
+    """Aplica PCA para visualização 2D."""
     pca = PCA(n_components=n_components, random_state=random_state)
     X_pca = pca.fit_transform(X)
     return X_pca, pca
@@ -127,7 +120,6 @@ def plot_clusters(X_pca, labels, df_cluster):
         s=50
     )
     
-    # Anota os 10 maiores municípios
     top_n = df_cluster.nlargest(10, 'Massa_Total')
     for _, row in top_n.iterrows():
         idx = df_cluster[df_cluster['MUNICÍPIO'] == row['MUNICÍPIO']].index[0]
@@ -159,3 +151,59 @@ def resumo_clusters(df_cluster, labels):
     resumo.columns = ['Quantidade', 'Massa_Media', 'Massa_Mediana', 'Massa_Total_Cluster', 
                       'Rotas_Media', 'Pct_Aterro_Media', 'Pct_Compostagem_Media']
     return resumo
+
+def descrever_clusters(df_cluster, labels):
+    """
+    Gera uma descrição textual para cada cluster com base nas médias das variáveis.
+    """
+    df_cluster['Cluster'] = labels
+    descricoes = {}
+    
+    for cluster in sorted(df_cluster['Cluster'].unique()):
+        subset = df_cluster[df_cluster['Cluster'] == cluster]
+        media_massa = subset['Massa_Total'].mean()
+        media_rotas = subset['Num_Rotas'].mean()
+        media_aterro = subset['Pct_Aterro'].mean()
+        media_compostagem = subset['Pct_Compostagem'].mean()
+        n_municipios = len(subset)
+        
+        desc = f"**Cluster {cluster+1}** – {n_municipios} municípios\n\n"
+        
+        # Perfil de massa
+        if media_massa > 100000:
+            desc += "📊 **Massa de resíduos:** Alta (acima de 100 mil t/ano). "
+        elif media_massa > 20000:
+            desc += "📊 **Massa de resíduos:** Média (entre 20 mil e 100 mil t/ano). "
+        else:
+            desc += "📊 **Massa de resíduos:** Baixa (menos de 20 mil t/ano). "
+        
+        # Perfil de destinação
+        if media_compostagem > 50:
+            desc += "♻️ **Compostagem:** Alta (acima de 50% das rotas). "
+            if media_aterro < 20:
+                desc += "🚮 **Aterro:** Baixo (menos de 20%). Este cluster já tem uma boa infraestrutura de compostagem. "
+                recomendacao = "**Recomendação:** Manter e expandir a coleta seletiva, e incentivar a compostagem doméstica."
+            else:
+                desc += "🚮 **Aterro:** Moderado. Há espaço para aumentar a compostagem. "
+                recomendacao = "**Recomendação:** Ampliar a coleta seletiva de orgânicos e investir em usinas de compostagem."
+        elif media_aterro > 70:
+            desc += "🚮 **Aterro:** Muito alto (acima de 70% das rotas). "
+            desc += "♻️ **Compostagem:** Baixa (menos de 30%). Este cluster depende fortemente de aterros. "
+            recomendacao = "**Recomendação:** Prioridade máxima para implantar coleta seletiva de orgânicos e compostagem."
+        else:
+            desc += "🚮 **Aterro:** Moderado (entre 30% e 70%). "
+            desc += "♻️ **Compostagem:** Moderada. Há potencial para melhorar. "
+            recomendacao = "**Recomendação:** Fortalecer a coleta seletiva e buscar parcerias para compostagem comunitária."
+        
+        if media_rotas > 10:
+            desc += f"🛣️ **Rotas de coleta:** {media_rotas:.1f} (muitas rotas, boa cobertura). "
+        elif media_rotas > 3:
+            desc += f"🛣️ **Rotas de coleta:** {media_rotas:.1f} (número médio de rotas). "
+        else:
+            desc += f"🛣️ **Rotas de coleta:** {media_rotas:.1f} (poucas rotas, pode indicar baixa capilaridade). "
+        
+        desc += "\n\n" + recomendacao
+        
+        descricoes[cluster] = desc
+    
+    return descricoes
