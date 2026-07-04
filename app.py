@@ -27,6 +27,8 @@ st.markdown("""
 Este aplicativo interpreta os **tipos de coleta executada** informados pelos municípios no SNIS
 e avalia o **potencial técnico para compostagem** de resíduos sólidos urbanos,
 utilizando **Inteligência Artificial** para padronizar os dados e a **metodologia UNFCCC A6.4-AMT-003** para o cálculo de emissões.
+
+**Ferramenta de apoio à gestão pública** – desenvolvida para subsidiar o SINISA e políticas de resíduos sólidos.
 """)
 
 # =========================================================
@@ -1469,7 +1471,7 @@ with tab_ia:
             """)
 
     # =========================================================
-    # SEÇÃO 4: ANÁLISE DE COBERTURA DA COLETA SELETIVA DE ORGÂNICOS (COM A CORREÇÃO)
+    # SEÇÃO 4: ANÁLISE DE COBERTURA DA COLETA SELETIVA DE ORGÂNICOS
     # =========================================================
     st.markdown("---")
     st.subheader("📊 Análise de Cobertura da Coleta Seletiva de Orgânicos")
@@ -1645,7 +1647,7 @@ with tab_ia:
     col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown("#### 📉 Cenário Atual (Pessimista)")
-        st.metric("Massa compostada", f"{formatar_br(massa_compostada_atual, auto_precision=False, casas_override=0)} t")   # <-- ADICIONADO
+        st.metric("Massa compostada", f"{formatar_br(massa_compostada_atual, auto_precision=False, casas_override=0)} t")
         st.metric("Emissões evitadas", f"{formatar_br(evitado_atual, auto_precision=False, casas_override=2)} tCO₂e")
         st.metric("Receita", f"R$ {formatar_br(receita_atual, auto_precision=False, casas_override=2)}")
         st.caption(f"Cobertura nacional: {formatar_br(pct_seletiva_brasil, auto_precision=False, casas_override=2)}%")
@@ -1705,10 +1707,36 @@ with tab_ia:
     """)
 
 # =========================================================
+# CONTATO E COLABORAÇÃO (NOVA SEÇÃO)
+# =========================================================
+st.markdown("---")
+st.subheader("📬 Contato e colaboração")
+
+st.markdown("""
+Este aplicativo foi desenvolvido por um servidor público federal com o objetivo de apoiar a gestão de resíduos sólidos, 
+mapear oportunidades de compostagem e auxiliar municípios a se prepararem para o mercado de créditos de carbono.
+
+**Entre em contato com a equipe do SINISA Resíduos Sólidos para mais informações, parcerias ou para utilizar esta ferramenta em processos internos:**
+
+✉️ **E-mail:** sinisa.residuos@cidades.gov.br  
+📞 **Telefone:** (61) 3774-6265 / 6269 / 6267  
+📱 **WhatsApp:** (61) 3774-6266  
+
+Estou à disposição para ajustar o aplicativo às necessidades da equipe, colaborar em análises, elaboração de notas técnicas e no andamento de processos no SEI.
+
+**Potencial de uso:**  
+- Mapeamento de municípios com coleta seletiva de orgânicos.  
+- Estimativa de emissões evitadas com compostagem.  
+- Projeção de receitas com créditos de carbono (UNFCCC).  
+- Identificação de prioridades para expansão da coleta seletiva.
+""")
+
+# =========================================================
 # RODAPÉ GERAL DO APP
 # =========================================================
 st.markdown("---")
 st.caption("""
-**Composta.IA** | 30º Concurso Inovação no Setor Público - Categoria IV (Inteligência Artificial para o Bem Público) | 
-Dados: SNIS (2023/2024) | Metodologia: UNFCCC A6.4-AMT-003 (2025) + TOOL13 (AMS-III.F) | IPCC AR5 (GWP-100)
+**Composta.IA** | Ferramenta de apoio à gestão de resíduos sólidos e créditos de carbono  
+Dados: SNIS (2023/2024) | Metodologia: UNFCCC A6.4-AMT-003 (2025) + TOOL13 (AMS-III.F) | IPCC AR5 (GWP-100)  
+Desenvolvido por servidor público federal – disponível para contribuir com o SINISA e políticas públicas de resíduos.
 """)
