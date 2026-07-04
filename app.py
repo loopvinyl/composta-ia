@@ -250,14 +250,17 @@ def calcular_co2eq_aterro_20anos(massa_t_ano, mcf, k_ano, doc):
     return co2eq_dia.sum()
 
 # =========================================================
-# FUNÇÃO DA COMPOSTAGEM (UNFCCC TOOL13)
+# FUNÇÃO DA COMPOSTAGEM (UNFCCC TOOL13 / AMS-III.F - PEQUENA ESCALA)
 # =========================================================
 def calcular_co2eq_compostagem_UNFCCC(massa_t_ano):
     """
     Emissões da compostagem usando fatores padrão UNFCCC (AMS-III.F / TOOL13).
-    CH4 = 0,002 kg CH4 / kg resíduo úmido
-    N2O = 0,0002 kg N2O / kg resíduo úmido
+    CH4 = 0,002 kg CH4 / kg resíduo úmido (fator total para todo o ciclo de compostagem)
+    N2O = 0,0002 kg N2O / kg resíduo úmido (fator total para todo o ciclo de compostagem)
     GWP: CH4=28, N2O=265 (IPCC AR5)
+    
+    O ciclo de compostagem típico dura de 30 a 90 dias, mas os fatores já incorporam
+    todas as emissões desse período, simplificando o cálculo.
     """
     if massa_t_ano <= 0:
         return 0.0
@@ -649,7 +652,7 @@ with tab_tradicional:
 
                 st.caption("""
                 - **Baseline (aterro)**: alinhado à UNFCCC A6.4-AMT-003 (Application B) – CH₄ apenas, φ=0.85, OX=0.383, GWP_CH4=28.
-                - **Cenário de compostagem**: UNFCCC TOOL13 (AMS-III.F) – CH₄=0.002, N₂O=0.0002, GWP_CH4=28, GWP_N2O=265.
+                - **Cenário de compostagem**: UNFCCC TOOL13 / AMS-III.F – CH₄=0.002, N₂O=0.0002, GWP_CH4=28, GWP_N2O=265.
                 - **DOC e k**: calculados dinamicamente a partir da caracterização dos resíduos do SNIS (quando disponível).
                 - Receita potencial anual considerando o preço atual do carbono.
                 """)
@@ -794,7 +797,7 @@ with tab_tradicional:
 
             st.info("ℹ️ **Metodologia:**\n\n"
                     "- **Baseline (aterro)**: UNFCCC A6.4-AMT-003 – CH₄ apenas, φ=0.85, OX=0.383, GWP_CH4=28.\n"
-                    "- **Cenário de compostagem**: UNFCCC TOOL13 (AMS-III.F) – CH₄=0.002, N₂O=0.0002, GWP_CH4=28, GWP_N2O=265.\n"
+                    "- **Cenário de compostagem**: UNFCCC TOOL13 / AMS-III.F – CH₄=0.002, N₂O=0.0002, GWP_CH4=28, GWP_N2O=265.\n"
                     "- **DOC e k**: ponderados pela caracterização dos resíduos (quando disponível).\n"
                     "- As quantidades exibidas na tela são arredondadas para duas casas decimais.")
 
@@ -1174,13 +1177,13 @@ with tab_ia:
                             st.success(f"💰 **Potencial total em {anos_sim} anos para {titulo_sim}: R$ {valor_final:,.2f}**")
                             
                             # =========================================================
-                            # 📊 DETALHAMENTO DOS CÁLCULOS (com formatação Brasileira)
+                            # 📊 DETALHAMENTO DOS CÁLCULOS (com formatação Brasileira e explicação temporal)
                             # =========================================================
                             with st.expander("📊 Ver detalhamento dos cálculos (baseline e compostagem)"):
                                 st.markdown("""
                                 ### 🔍 Metodologia utilizada
                                 - **Baseline (aterro)**: UNFCCC A6.4-AMT-003 – CH₄ apenas, φ=0.85, OX=0.383, GWP_CH4=28.
-                                - **Cenário de compostagem**: UNFCCC TOOL13 (AMS-III.F) – CH₄=0.002, N₂O=0.0002, GWP_CH4=28, GWP_N2O=265.
+                                - **Cenário de compostagem**: UNFCCC TOOL13 / AMS-III.F – CH₄=0.002, N₂O=0.0002, GWP_CH4=28, GWP_N2O=265.
                                 - **Emissões evitadas** = emissões do aterro – emissões da compostagem.
                                 """)
                                 
@@ -1211,6 +1214,7 @@ with tab_ia:
                                 - Câmbio EUR/BRL: R$ {cambio_fmt}
                                 """)
                                 
+                                # Fórmula em LaTeX com números formatados no padrão brasileiro
                                 st.latex(rf"""
                                 \text{{Receita anual}} = 
                                 {massa_desviada_fmt} \times 
@@ -1219,6 +1223,47 @@ with tab_ia:
                                 {cambio_fmt}
                                 = R\$ {receita_anual_fmt}
                                 """)
+                                
+                                # =========================================================
+                                # NOVA SEÇÃO: EXPLICAÇÃO TEMPORAL (DINÂMICA DO CÁLCULO)
+                                # =========================================================
+                                st.markdown("""
+                                ---
+                                ### ⏳ Como o tempo é considerado no cálculo?
+
+                                **No aterro (baseline):**  
+                                O resíduo depositado em um ano **continua emitindo metano por até 20 anos**.  
+                                Exemplo: 1.000 t depositadas em 2024 vão gerar metano em 2024, 2025, 2026... até 2044.
+
+                                **Na compostagem (projeto):**  
+                                O resíduo processado em um ano **emite apenas durante o ciclo de compostagem** (cerca de 30 a 90 dias).  
+                                Exemplo: 1.000 t processadas em 2024 emitem apenas em 2024.
+
+                                **Como isso se reflete nos créditos de carbono?**
+                                """)
+                                
+                                # Exemplo temporal com tabela
+                                st.markdown("""
+                                **🧮 Exemplo simplificado com 3 anos:**
+
+                                | Ano | Resíduo | Emissões do Aterro (baseline) | Emissões da Compostagem | Emissões Evitadas |
+                                | :--- | :--- | :--- | :--- | :--- |
+                                | **2024** | Lote 2024 | Metano do lote 2024 | Emissão do lote 2024 | Aterro - Compostagem |
+                                | **2025** | Lote 2025 | Metano do lote 2024 + lote 2025 | Emissão do lote 2025 | (Aterro 2024+2025) - Compostagem 2025 |
+                                | **2026** | Lote 2026 | Metano do lote 2024 + 2025 + 2026 | Emissão do lote 2026 | (Aterro 2024+2025+2026) - Compostagem 2026 |
+
+                                > 📌 O aterro **acumula** emissões ao longo dos anos (porque o lixo de 2024 ainda está gerando metano em 2025).  
+                                > A compostagem **emite apenas uma vez** (no ano em que o resíduo é processado).
+                                """)
+                                
+                                st.info("""
+                                💡 **Por que isso é importante?**  
+                                Ao longo de 20 anos, cada tonelada desviada para compostagem **evita** as emissões de metano que o aterro teria gerado.  
+                                O valor acumulado mostra o **potencial total de ganhos** com créditos de carbono.
+                                """)
+                                # =========================================================
+                                # FIM DA NOVA SEÇÃO
+                                # =========================================================
                                 
                                 # Tabela completa com emissões evitadas anuais
                                 df_sim_detalhe = df_sim.copy()
