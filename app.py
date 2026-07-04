@@ -885,6 +885,7 @@ with tab_ia:
     - **Classificação de destinos** com Processamento de Linguagem Natural (PLN)
     - **Projeção de geração de resíduos per capita** com base no crescimento populacional (município ou Brasil)
     - **Simulação de cenários de compostagem** e potencial de ganhos com créditos de carbono (município ou Brasil)
+    - **Clusterização de municípios** por perfil de resíduos (K-Means)
     """)
     
     # =========================================================
@@ -959,7 +960,7 @@ with tab_ia:
     )
     
     # =========================================================
-    # CLUSTERIZAÇÃO DE MUNICÍPIOS (K-MEANS)
+    # CLUSTERIZAÇÃO DE MUNICÍPIOS (K-MEANS) COM DESCRIÇÕES
     # =========================================================
     st.markdown("---")
     st.subheader("📈 Clusterização de Municípios por Perfil de Resíduos")
@@ -977,7 +978,8 @@ with tab_ia:
                     clusterizar_municipios,
                     aplicar_pca,
                     plot_clusters,
-                    resumo_clusters
+                    resumo_clusters,
+                    descrever_clusters
                 )
                 
                 X, df_cluster = preparar_dados_clusterizacao(df_clean)
@@ -1003,6 +1005,13 @@ with tab_ia:
                         'Pct_Compostagem_Media': '{:.1f}'
                     }))
                     
+                    # --- DESCRIÇÕES DOS CLUSTERS ---
+                    st.subheader("📝 Perfil de cada Cluster")
+                    descricoes = descrever_clusters(df_cluster, labels)
+                    for cluster in sorted(descricoes.keys()):
+                        with st.expander(f"Cluster {cluster+1} – Clique para ver detalhes"):
+                            st.markdown(descricoes[cluster])
+                    
                     st.subheader("📍 Municípios por Cluster")
                     for cluster in sorted(df_cluster['Cluster'].unique()):
                         with st.expander(f"Cluster {cluster+1}"):
@@ -1026,7 +1035,6 @@ with tab_ia:
     com base no crescimento populacional. A geração per capita é mantida constante a partir dos dados atuais do SNIS.
     """)
     
-    # Lista de opções: BRASIL + todos os municípios
     opcoes_proj = ["BRASIL – Todos os municípios"] + sorted(df_clean[COL_MUNICIPIO].unique())
     municipio_proj = st.selectbox(
         "Selecione o município (ou Brasil) para projeção:",
@@ -1036,10 +1044,8 @@ with tab_ia:
     
     if municipio_proj:
         if municipio_proj == "BRASIL – Todos os municípios":
-            # Agrega dados de todo o Brasil
             df_mun_proj = df_clean.copy()
             massa_atual = df_mun_proj['MASSA_COLETADA'].sum()
-            # Para a população, vamos pedir ao usuário ou usar uma estimativa
             pop_atual = st.number_input(
                 "População total do Brasil (habitantes) – IBGE 2024:", 
                 min_value=1000, value=210000000, step=1000000
@@ -1108,7 +1114,6 @@ with tab_ia:
             df_mun_sim = df_clean[df_clean[COL_MUNICIPIO] == municipio_sim]
             titulo_sim = municipio_sim
         
-        # Calcula a massa orgânica que atualmente vai para ATERRO (MCF > 0)
         df_mun_sim['MCF'] = df_mun_sim[COL_DESTINO].apply(determinar_mcf_por_destino)
         df_org_aterro = df_mun_sim[df_mun_sim['MCF'] > 0]
         massa_aterro_atual = df_org_aterro['MASSA_COLETADA'].sum()
