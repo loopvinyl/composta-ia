@@ -505,7 +505,6 @@ with tab_tradicional:
     agg_grafico = df_mun_dest.groupby('destino_agrupado')['MASSA_FLOAT'].sum().reset_index()
     agg_grafico = agg_grafico.sort_values('MASSA_FLOAT', ascending=False).head(8)
 
-    # Ajuste do gráfico de pizza para evitar sobreposição
     fig_dest, ax_dest = plt.subplots(figsize=(10, 8))
     cores = plt.cm.Set3(np.linspace(0, 1, len(agg_grafico)))
     wedges, texts, autotexts = ax_dest.pie(
@@ -518,7 +517,6 @@ with tab_tradicional:
         pctdistance=0.85,
         labeldistance=1.05
     )
-    # Ajusta a fonte dos rótulos para evitar sobreposição
     for text in texts:
         text.set_fontsize(9)
     for autotext in autotexts:
@@ -752,7 +750,6 @@ with tab_tradicional:
 
         st.markdown(f"### Total de orgânicos coletados seletivamente: **{formatar_br(total_organicos, auto_precision=False, casas_override=2)} t**")
 
-        # Gráfico de composição da destinação dos orgânicos
         st.markdown("#### 📊 Composição da destinação dos orgânicos")
         agg_org_pie = df_organicos.groupby(COL_DESTINO)["MASSA_FLOAT"].sum().reset_index()
         agg_org_pie = agg_org_pie.sort_values("MASSA_FLOAT", ascending=False)
@@ -777,7 +774,6 @@ with tab_tradicional:
         st.pyplot(fig_pie)
         plt.close(fig_pie)
 
-        # Tabela resumo
         st.markdown("#### 📋 Tabela – Destino da coleta de recicláveis orgânicos")
         agg_org = df_organicos.groupby(COL_DESTINO)["MASSA_FLOAT"].sum().reset_index()
         agg_org = agg_org.sort_values("MASSA_FLOAT", ascending=False)
@@ -1513,6 +1509,41 @@ with tab_ia:
     col1.metric("Massa em coleta seletiva orgânica", f"{formatar_br(massa_seletiva_brasil, auto_precision=False, casas_override=0)} t")
     col2.metric("Percentual nacional (massa)", f"{formatar_br(pct_seletiva_brasil, auto_precision=False, casas_override=2)}%")
     col3.metric("Média municipal (não ponderada)", f"{formatar_br(media_pct_municipios, auto_precision=False, casas_override=2)}%")
+
+    # =========================================================
+    # 🏆 TOP 10 MUNICÍPIOS (ADICIONADO)
+    # =========================================================
+    st.markdown("### 🏆 Destaques da Coleta Seletiva de Orgânicos")
+
+    df_com_seletiva = df_cobertura[df_cobertura['Possui_Seletiva']]
+    if not df_com_seletiva.empty:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("#### 📊 Top 10 – Maior Percentual de Cobertura")
+            top_pct = df_com_seletiva.nlargest(10, 'Pct_Seletiva')[['MUNICÍPIO', 'UF', 'Massa_Seletiva_Organicos', 'Massa_Total', 'Pct_Seletiva']]
+            st.dataframe(
+                top_pct.style.format({
+                    'Massa_Seletiva_Organicos': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                    'Massa_Total': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                    'Pct_Seletiva': lambda x: formatar_br(x, auto_precision=False, casas_override=2) + '%'
+                }),
+                use_container_width=True,
+                hide_index=True
+            )
+        with col2:
+            st.markdown("#### 📊 Top 10 – Maior Massa Destinada à Compostagem")
+            top_massa = df_com_seletiva.nlargest(10, 'Massa_Seletiva_Organicos')[['MUNICÍPIO', 'UF', 'Massa_Seletiva_Organicos', 'Massa_Total', 'Pct_Seletiva']]
+            st.dataframe(
+                top_massa.style.format({
+                    'Massa_Seletiva_Organicos': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                    'Massa_Total': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                    'Pct_Seletiva': lambda x: formatar_br(x, auto_precision=False, casas_override=2) + '%'
+                }),
+                use_container_width=True,
+                hide_index=True
+            )
+    else:
+        st.info("Nenhum município com coleta seletiva de orgânicos para listar.")
 
     # Tabela detalhada (com opção de expandir)
     with st.expander("📋 Detalhamento por município (clique para expandir)"):
