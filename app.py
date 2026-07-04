@@ -133,6 +133,19 @@ def formatar_massa_br(valor):
         return "Não informado"
     return f"{formatar_br(valor)} t"
 
+# NOVA FUNÇÃO PARA FORMATAR EIXOS COM ABREVIAÇÕES (Mi, Bi)
+def formatar_eixo_abreviado(x, pos):
+    """Formata números grandes para exibir como Mi (milhões) ou Bi (bilhões)."""
+    if x == 0:
+        return "0"
+    if abs(x) >= 1e9:
+        return f"{x/1e9:.1f} Bi"
+    if abs(x) >= 1e6:
+        return f"{x/1e6:.1f} Mi"
+    if abs(x) >= 1e3:
+        return f"{x/1e3:.1f} k"
+    return f"{x:.0f}"
+
 # =========================================================
 # PARÂMETROS UNFCCC A6.4-AMT-003-v01.0 (2025) – Application B (Tropical Wet)
 # =========================================================
@@ -497,7 +510,7 @@ with tab_tradicional:
 
     st.markdown(f"### Total de resíduos coletados: **{formatar_br(massa_total_geral, auto_precision=False, casas_override=0)} t**")
 
-    # --- Gráfico de pizza com legenda (sem rótulos sobrepostos) ---
+    # --- Gráfico de pizza com legenda ---
     st.markdown("#### 📊 Distribuição dos principais destinos")
     df_mun_dest['destino_agrupado'] = df_mun_dest[COL_DESTINO].apply(
         lambda x: classificador_ia.prever(x, threshold=0.3) if pd.notna(x) else "Indefinido"
@@ -581,7 +594,8 @@ with tab_tradicional:
         ax.barh(top_destinos[COL_DESTINO], top_destinos["MASSA_FLOAT"], color='steelblue')
         ax.set_xlabel('Massa (t)')
         ax.set_title('Top 10 destinos de resíduos')
-        ax.xaxis.set_major_formatter(FuncFormatter(br_format))
+        # Aplica a formatação abreviada
+        ax.xaxis.set_major_formatter(FuncFormatter(formatar_eixo_abreviado))
         plt.tight_layout()
         st.pyplot(fig)
         plt.close(fig)
@@ -624,7 +638,7 @@ with tab_tradicional:
             ax.barh(top_estados[COL_UF], top_estados["MASSA_FLOAT"], color='forestgreen')
             ax.set_xlabel('Massa (t)')
             ax.set_title('Top 10 estados')
-            ax.xaxis.set_major_formatter(FuncFormatter(br_format))
+            ax.xaxis.set_major_formatter(FuncFormatter(formatar_eixo_abreviado))
             plt.tight_layout()
             st.pyplot(fig)
             plt.close(fig)
@@ -905,7 +919,7 @@ with tab_ia:
     """)
     
     # =========================================================
-    # CLASSIFICAÇÃO DE DESTINOS (PLN) - COM GRÁFICO DE PIZZA CORRIGIDO
+    # CLASSIFICAÇÃO DE DESTINOS (PLN)
     # =========================================================
     st.subheader("📋 Classificação Inteligente de Destinos (PLN)")
     
@@ -944,7 +958,7 @@ with tab_ia:
     df_comparacao = pd.DataFrame(dados_comparacao)
     st.dataframe(df_comparacao, use_container_width=True, height=400)
     
-    # Distribuição dos destinos pela IA - GRÁFICO DE PIZZA COM LEGENDA
+    # Distribuição dos destinos pela IA
     st.subheader("📊 Distribuição Nacional de Destinos (Classificação por IA)")
     
     @st.cache_data
@@ -986,7 +1000,7 @@ with tab_ia:
     )
     
     # =========================================================
-    # CLUSTERIZAÇÃO DE MUNICÍPIOS (K-MEANS) COM DESCRIÇÕES
+    # CLUSTERIZAÇÃO DE MUNICÍPIOS (K-MEANS)
     # =========================================================
     st.markdown("---")
     st.subheader("📈 Clusterização de Municípios por Perfil de Resíduos")
@@ -1051,7 +1065,7 @@ with tab_ia:
                 st.info("ℹ️ Verifique se o arquivo `utils/ia_clustering.py` está atualizado.")
     
     # =========================================================
-    # SEÇÃO 1: PREVISÃO DE GERAÇÃO PER CAPITA (COM OPÇÃO BRASIL)
+    # SEÇÃO 1: PREVISÃO DE GERAÇÃO PER CAPITA
     # =========================================================
     st.markdown("---")
     st.subheader("📈 Previsão de Geração de Resíduos por Habitante")
@@ -1116,7 +1130,7 @@ with tab_ia:
                         st.error(f"Erro na projeção: {e}")
     
     # =========================================================
-    # SEÇÃO 2: SIMULAÇÃO DE CENÁRIOS DE COMPOSTAGEM (COM OPÇÃO BRASIL)
+    # SEÇÃO 2: SIMULAÇÃO DE CENÁRIOS DE COMPOSTAGEM
     # =========================================================
     st.markdown("---")
     st.subheader("💰 Simulador: Quanto o município (ou o Brasil) pode ganhar com créditos de carbono?")
@@ -1202,7 +1216,7 @@ with tab_ia:
                             st.success(f"💰 **Potencial total em {anos_sim} anos para {titulo_sim}: R$ {valor_final_fmt}**")
                             
                             # =========================================================
-                            # 📊 DETALHAMENTO DOS CÁLCULOS (com formatação Brasileira e explicação temporal)
+                            # 📊 DETALHAMENTO DOS CÁLCULOS
                             # =========================================================
                             with st.expander("📊 Ver detalhamento dos cálculos (baseline e compostagem)"):
                                 st.markdown("""
@@ -1215,85 +1229,12 @@ with tab_ia:
                                 st.markdown(f"""
                                 **📌 Dados de entrada:**
                                 - Massa de orgânicos que vai para aterro atualmente: **{formatar_br(massa_aterro_atual, auto_precision=False, casas_override=0)} t/ano**
-                                - **Taxa de decaimento (k) utilizada:** {formatar_br(k_pond, auto_precision=False, casas_override=3)} ano⁻¹ (calculada com base na caracterização dos resíduos)
-                                - **DOC utilizado:** {formatar_br(doc_pond, auto_precision=False, casas_override=3)} (fração de carbono degradável, ponderada pela composição)
+                                - **Taxa de decaimento (k) utilizada:** {formatar_br(k_pond, auto_precision=False, casas_override=3)} ano⁻¹
+                                - **DOC utilizado:** {formatar_br(doc_pond, auto_precision=False, casas_override=3)}
                                 - Coeficiente de emissões do aterro por tonelada: **{formatar_br(co2_aterro / massa_aterro_atual if massa_aterro_atual > 0 else 0, auto_precision=False, casas_override=2)} tCO₂e/t**
                                 - Coeficiente de emissões da compostagem por tonelada: **{formatar_br(co2_compostagem / massa_aterro_atual if massa_aterro_atual > 0 else 0, auto_precision=False, casas_override=2)} tCO₂e/t**
                                 - Emissões evitadas por tonelada desviada: **{formatar_br(co2_evitado_por_t, auto_precision=False, casas_override=2)} tCO₂e/t**
                                 """)
-                                
-                                # Exemplo de cálculo para o primeiro ano
-                                st.markdown("**🧮 Exemplo de cálculo para o Ano 1:**")
-                                ano1 = df_sim.iloc[0]
-                                
-                                massa_desviada_fmt = formatar_br(ano1['Massa_Desviada_Acumulada(t)'], auto_precision=False, casas_override=0)
-                                co2_evitado_ano_fmt = formatar_br(ano1['Massa_Desviada_Acumulada(t)'] * co2_evitado_por_t, auto_precision=False, casas_override=0)
-                                preco_carbono_fmt = formatar_br(st.session_state.preco_carbono, auto_precision=False, casas_override=2)
-                                cambio_fmt = formatar_br(st.session_state.taxa_cambio, auto_precision=False, casas_override=2)
-                                receita_anual_fmt = formatar_br(ano1['Receita_Anual_BRL'], auto_precision=False, casas_override=2)
-                                
-                                st.markdown(f"""
-                                - Massa desviada no ano 1: **{massa_desviada_fmt} t** (aumento de {taxa_crescimento*100:.0f}% em relação ao ano atual)
-                                - Emissões evitadas no ano 1: **{co2_evitado_ano_fmt} tCO₂e**
-                                - Preço do carbono no ano 1: € {preco_carbono_fmt} (inflação de {inflacao_carbono*100:.0f}% ao ano)
-                                - Câmbio EUR/BRL: R$ {cambio_fmt}
-                                """)
-                                
-                                # Fórmula em LaTeX com números formatados no padrão brasileiro
-                                st.latex(rf"""
-                                \text{{Receita anual}} = 
-                                {massa_desviada_fmt} \times 
-                                {formatar_br(co2_evitado_por_t, auto_precision=False, casas_override=2)} \times 
-                                {preco_carbono_fmt} \times 
-                                {cambio_fmt}
-                                = R\$ {receita_anual_fmt}
-                                """)
-                                
-                                # Explicação temporal
-                                st.markdown("""
-                                ---
-                                ### ⏳ Como o tempo é considerado no cálculo?
-
-                                **No aterro (baseline):**  
-                                O resíduo depositado em um ano **continua emitindo metano por até 20 anos**.  
-                                Exemplo: 1.000 t depositadas em 2024 vão gerar metano em 2024, 2025, 2026... até 2044.
-
-                                **Na compostagem (projeto):**  
-                                O resíduo processado em um ano **emite apenas durante o ciclo de compostagem** (cerca de 30 a 90 dias).  
-                                Exemplo: 1.000 t processadas em 2024 emitem apenas em 2024.
-
-                                **Como isso se reflete nos créditos de carbono?**
-                                """)
-                                
-                                st.markdown("""
-                                **🧮 Exemplo simplificado com 3 anos:**
-
-                                | Ano | Resíduo | Emissões do Aterro (baseline) | Emissões da Compostagem | Emissões Evitadas |
-                                | :--- | :--- | :--- | :--- | :--- |
-                                | **2024** | Lote 2024 | Metano do lote 2024 | Emissão do lote 2024 | Aterro - Compostagem |
-                                | **2025** | Lote 2025 | Metano do lote 2024 + lote 2025 | Emissão do lote 2025 | (Aterro 2024+2025) - Compostagem 2025 |
-                                | **2026** | Lote 2026 | Metano do lote 2024 + 2025 + 2026 | Emissão do lote 2026 | (Aterro 2024+2025+2026) - Compostagem 2026 |
-
-                                > 📌 O aterro **acumula** emissões ao longo dos anos (porque o lixo de 2024 ainda está gerando metano em 2025).  
-                                > A compostagem **emite apenas uma vez** (no ano em que o resíduo é processado).
-                                """)
-                                
-                                st.info("""
-                                💡 **Por que isso é importante?**  
-                                Ao longo de 20 anos, cada tonelada desviada para compostagem **evita** as emissões de metano que o aterro teria gerado.  
-                                O valor acumulado mostra o **potencial total de ganhos** com créditos de carbono.
-                                """)
-                                
-                                # Tabela completa com emissões evitadas anuais
-                                df_sim_detalhe = df_sim.copy()
-                                df_sim_detalhe['Emissoes_Evitadas_Anual(tCO2e)'] = df_sim_detalhe['Massa_Desviada_Acumulada(t)'] * co2_evitado_por_t
-                                st.markdown("**📊 Tabela completa com emissões evitadas:**")
-                                st.dataframe(df_sim_detalhe.style.format({
-                                    'Massa_Desviada_Acumulada(t)': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
-                                    'Emissoes_Evitadas_Anual(tCO2e)': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
-                                    'Receita_Anual_BRL': lambda x: f"R$ {formatar_br(x, auto_precision=False, casas_override=2)}",
-                                    'Receita_Acumulada_BRL': lambda x: f"R$ {formatar_br(x, auto_precision=False, casas_override=2)}"
-                                }))
                                 
                                 st.info("""
                                 💡 **Interpretação:**  
@@ -1306,7 +1247,7 @@ with tab_ia:
                         st.error(f"Erro na simulação: {e}")
 
     # =========================================================
-    # SEÇÃO 3: CENÁRIOS DE EXPANSÃO DA COMPOSTAGEM NO BRASIL (REFORMULADA)
+    # SEÇÃO 3: CENÁRIOS DE EXPANSÃO DA COMPOSTAGEM (CORRIGIDA)
     # =========================================================
     st.markdown("---")
     st.subheader("🌍 Cenários de Expansão da Compostagem no Brasil")
@@ -1341,7 +1282,7 @@ with tab_ia:
         df_mun_cenario = pd.merge(df_aterro, df_compost, on=COL_MUNICIPIO, how='outer').fillna(0)
         df_mun_cenario['Massa_Total'] = df_mun_cenario['Massa_Aterro'] + df_mun_cenario['Massa_Compostagem']
 
-        # Adiciona UF para a tabela de municípios
+        # Adiciona UF
         df_uf_mun = df_clean[[COL_MUNICIPIO, COL_UF]].drop_duplicates(subset=[COL_MUNICIPIO])
         df_uf_mun.rename(columns={COL_UF: 'UF'}, inplace=True)
         df_mun_cenario = pd.merge(df_mun_cenario, df_uf_mun, on=COL_MUNICIPIO, how='left')
@@ -1386,14 +1327,14 @@ with tab_ia:
         st.markdown("---")
         st.subheader("📌 Cenário 1 – Situação Atual (com percentual real de compostagem)")
 
-        # Coeficiente de emissões evitadas (médio, usando parâmetros padrão)
+        # Coeficiente de emissões evitadas (médio)
         doc_medio, k_medio = DOC_PADRAO, K_PADRAO
         co2_aterro_por_t = calcular_co2eq_aterro_20anos(1, 0.8, k_medio, doc_medio)
         co2_compost_por_t = calcular_co2eq_compostagem_UNFCCC(1)
         co2_evitado_por_t = co2_aterro_por_t - co2_compost_por_t
 
         # Massa que efetivamente vai para compostagem hoje
-        massa_compost_real = total_compost  # já é a massa que vai para compostagem
+        massa_compost_real = total_compost
 
         evitado_atual = massa_compost_real * co2_evitado_por_t
         receita_atual = evitado_atual * st.session_state.preco_carbono * st.session_state.taxa_cambio
@@ -1416,7 +1357,7 @@ with tab_ia:
         st.caption(f"Percentual de compostagem sobre o total de orgânicos: {formatar_br(pct_compost_real, auto_precision=False, casas_override=2)}%")
 
         # -----------------------------------------------------------------
-        # 5. Cenário 2 – Expansão para municípios sem coleta seletiva
+        # 5. Cenário 2 – Expansão para municípios sem coleta seletiva (CORRIGIDO)
         # -----------------------------------------------------------------
         st.markdown("---")
         st.subheader("📌 Cenário 2 – Expansão da coleta seletiva para novos municípios")
@@ -1435,7 +1376,8 @@ with tab_ia:
         }).reset_index()
         df_total_geral.rename(columns={COL_MASSA: 'Massa_Total_Geral', COL_UF: 'UF'}, inplace=True)
 
-        municipios_com_seletiva = df_mun_cenario['MUNICIPIO'].unique()
+        # CORREÇÃO: usar 'MUNICÍPIO' com acento
+        municipios_com_seletiva = df_mun_cenario['MUNICÍPIO'].unique()
         df_sem_seletiva = df_total_geral[~df_total_geral[COL_MUNICIPIO].isin(municipios_com_seletiva)]
         massa_sem_seletiva = df_sem_seletiva['Massa_Total_Geral'].sum()
 
@@ -1529,7 +1471,7 @@ with tab_ia:
             """)
 
     # =========================================================
-    # SEÇÃO 4: ANÁLISE DE COBERTURA DA COLETA SELETIVA DE ORGÂNICOS (MANTIDA)
+    # SEÇÃO 4: ANÁLISE DE COBERTURA (MANTIDA)
     # =========================================================
     st.markdown("---")
     st.subheader("📊 Análise de Cobertura da Coleta Seletiva de Orgânicos")
@@ -1540,9 +1482,8 @@ with tab_ia:
     """)
 
     # -----------------------------------------------------------------
-    # 1. Calcular massa total e massa de coleta seletiva por município (com UF)
+    # 1. Calcular massa total e massa de coleta seletiva por município
     # -----------------------------------------------------------------
-    # Agrupa por município para calcular massa total e obter UF
     df_total = df_clean.groupby(COL_MUNICIPIO).agg({
         COL_MASSA: 'sum',
         COL_UF: 'first'
@@ -1552,14 +1493,12 @@ with tab_ia:
         COL_UF: 'UF'
     }, inplace=True)
 
-    # Agrupa por município para calcular massa de coleta seletiva de orgânicos
     mask_organicos = df_clean[COL_TIPO_COLETA].astype(str).str.contains(
         "seletiva.*orgânico|orgânico.*seletiva", case=False, na=False, regex=True
     )
     df_seletiva = df_clean[mask_organicos].groupby(COL_MUNICIPIO).agg({COL_MASSA: 'sum'}).reset_index()
     df_seletiva.rename(columns={COL_MASSA: 'Massa_Seletiva_Organicos'}, inplace=True)
 
-    # Junta os dados (mantém UF)
     df_cobertura = pd.merge(df_total, df_seletiva, on=COL_MUNICIPIO, how='left').fillna(0)
     df_cobertura['Pct_Seletiva'] = (df_cobertura['Massa_Seletiva_Organicos'] / df_cobertura['Massa_Total']) * 100
     df_cobertura['Pct_Seletiva'] = df_cobertura['Pct_Seletiva'].round(2)
@@ -1627,7 +1566,7 @@ with tab_ia:
     else:
         st.info("Nenhum município com coleta seletiva de orgânicos para listar.")
 
-    # Tabela detalhada (com opção de expandir)
+    # Tabela detalhada
     with st.expander("📋 Detalhamento por município (clique para expandir)"):
         st.dataframe(
             df_cobertura.style.format({
@@ -1638,7 +1577,7 @@ with tab_ia:
             use_container_width=True
         )
 
-    # Gráfico de distribuição dos percentuais
+    # Gráfico de distribuição
     st.subheader("📊 Distribuição dos percentuais de cobertura")
     fig, ax = plt.subplots(figsize=(10, 6))
     df_plot = df_cobertura[df_cobertura['Massa_Total'] > 0]
@@ -1656,7 +1595,7 @@ with tab_ia:
     plt.close(fig)
 
     # -----------------------------------------------------------------
-    # 3. Cenários de expansão: Atual (Pessimista), Realista (1º Quartil), Otimista (Média)
+    # 3. Cenários de expansão
     # -----------------------------------------------------------------
     st.markdown("### 🚀 Cenários de Expansão da Cobertura")
 
@@ -1719,7 +1658,6 @@ with tab_ia:
         st.metric("Receita total", f"R$ {formatar_br(receita_total_otimista, auto_precision=False, casas_override=2)}")
         st.caption(f"Meta: {pct_media:.2f}% (média)")
 
-    # Tabelas adicionais
     with st.expander("📋 Municípios com menores percentuais de cobertura (referência para os cenários)"):
         st.markdown("#### 📊 Menores percentuais **positivos** (> 0%)")
         if not df_com_seletiva.empty:
