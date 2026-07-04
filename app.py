@@ -329,10 +329,10 @@ def plot_projecao_residuos(df_proj):
     ax2.tick_params(axis='y', labelcolor='green')
     
     for i, row in df_proj.iterrows():
-        ax1.annotate(f"{row['Populacao_Projetada']:,.0f}", 
+        ax1.annotate(formatar_br(row['Populacao_Projetada'], auto_precision=False, casas_override=0), 
                     (row['Ano'], row['Populacao_Projetada']), 
                     textcoords="offset points", xytext=(0,10), ha='center', fontsize=8, color='blue')
-        ax2.annotate(f"{row['Massa_Projetada_ton']:,.0f}", 
+        ax2.annotate(formatar_br(row['Massa_Projetada_ton'], auto_precision=False, casas_override=0), 
                     (row['Ano'], row['Massa_Projetada_ton']), 
                     textcoords="offset points", xytext=(0,-15), ha='center', fontsize=8, color='green')
     
@@ -389,7 +389,7 @@ def plot_simulacao_compostagem(df_sim):
     ax.fill_between(df_sim['Ano'], 0, df_sim['Receita_Acumulada_BRL'], alpha=0.3, color='lightgreen')
     
     for i, row in df_sim.iterrows():
-        ax.annotate(f"R$ {row['Receita_Acumulada_BRL']:,.0f}", 
+        ax.annotate(f"R$ {formatar_br(row['Receita_Acumulada_BRL'], auto_precision=False, casas_override=0)}", 
                     (row['Ano'], row['Receita_Acumulada_BRL']), 
                     textcoords="offset points", xytext=(0,10), ha='center', fontsize=8)
     
@@ -494,7 +494,7 @@ with tab_tradicional:
     df_mun["MASSA_FLOAT"] = pd.to_numeric(df_mun[COL_MASSA], errors="coerce").fillna(0)
 
     massa_total = df_mun["MASSA_FLOAT"].sum()
-    st.markdown(f"### Total de resíduos coletados: **{formatar_numero_br(massa_total)} t**")
+    st.markdown(f"### Total de resíduos coletados: **{formatar_br(massa_total, auto_precision=False, casas_override=0)} t**")
     st.markdown("""
     A tabela abaixo exibe **cada rota de coleta** e seu respectivo tipo de unidade, exatamente como declarado no SNIS.
     Nenhuma agregação ou filtro foi aplicado – os valores correspondem à massa anual coletada para cada rota e destino.
@@ -531,7 +531,7 @@ with tab_tradicional:
             )]
 
         massa_total_dist = df_dist["MASSA_FLOAT"].sum()
-        st.markdown(f"### Total de resíduos coletados: **{formatar_numero_br(massa_total_dist)} t**")
+        st.markdown(f"### Total de resíduos coletados: **{formatar_br(massa_total_dist, auto_precision=False, casas_override=0)} t**")
 
         agg_destino = df_dist.groupby(COL_DESTINO)["MASSA_FLOAT"].sum().reset_index()
         agg_destino = agg_destino.sort_values("MASSA_FLOAT", ascending=False)
@@ -607,8 +607,8 @@ with tab_tradicional:
 
                 col_m1, col_m2, col_m3 = st.columns(3)
                 col_m1.metric("Municípios com coleta seletiva", num_municipios)
-                col_m2.metric("Massa p/ Compostagem", f"{formatar_numero_br(pct_comp, 1)}%")
-                col_m3.metric("Massa p/ Aterro", f"{formatar_numero_br(pct_aterro, 1)}%")
+                col_m2.metric("Massa p/ Compostagem", f"{formatar_br(pct_comp, auto_precision=False, casas_override=1)}%")
+                col_m3.metric("Massa p/ Aterro", f"{formatar_br(pct_aterro, auto_precision=False, casas_override=1)}%")
 
                 ranking_data = df_org_ranking.groupby([COL_MUNICIPIO, COL_UF, COL_DESTINO])["MASSA_FLOAT_RANK"].sum().reset_index()
 
@@ -682,7 +682,7 @@ with tab_tradicional:
         total_organicos = df_organicos["MASSA_FLOAT"].sum()
         massa_total_geral = df_mun_org["MASSA_FLOAT"].sum()
 
-        st.markdown(f"### Total de orgânicos coletados seletivamente: **{formatar_numero_br(total_organicos)} t**")
+        st.markdown(f"### Total de orgânicos coletados seletivamente: **{formatar_br(total_organicos, auto_precision=False, casas_override=2)} t**")
 
         st.markdown("#### Tabela – Destino da coleta de recicláveis orgânicos")
         agg_org = df_organicos.groupby(COL_DESTINO)["MASSA_FLOAT"].sum().reset_index()
@@ -758,9 +758,9 @@ with tab_tradicional:
 
             col1, col2, col3, col4 = st.columns(4)
             col1.metric("Massa em aterros", formatar_massa_br(massa_aterro_total))
-            col2.metric("CO₂e aterro (20 anos)", f"{formatar_numero_br(co2eq_aterro_total)} tCO₂e")
-            col3.metric("CO₂e compostagem (20 anos)", f"{formatar_numero_br(co2eq_compostagem)} tCO₂e")
-            col4.metric("Emissões Evitadas", f"{formatar_numero_br(evitado)} tCO₂e")
+            col2.metric("CO₂e aterro (20 anos)", f"{formatar_br(co2eq_aterro_total, auto_precision=False, casas_override=2)} tCO₂e")
+            col3.metric("CO₂e compostagem (20 anos)", f"{formatar_br(co2eq_compostagem, auto_precision=False, casas_override=2)} tCO₂e")
+            col4.metric("Emissões Evitadas", f"{formatar_br(evitado, auto_precision=False, casas_override=2)} tCO₂e")
 
             # =========================================================
             # 💰 POTENCIAL DE CRÉDITOS DE CARBONO
@@ -830,7 +830,7 @@ with tab_tradicional:
         total_podas = df_podas["MASSA_FLOAT"].sum()
         massa_total_geral_podas = df_mun_podas["MASSA_FLOAT"].sum()
 
-        st.markdown(f"### Total de podas e galhadas coletadas: **{formatar_numero_br(total_podas)} t**")
+        st.markdown(f"### Total de podas e galhadas coletadas: **{formatar_br(total_podas, auto_precision=False, casas_override=2)} t**")
 
         st.markdown("#### Tabela – Destino da coleta de podas e galhadas")
         agg_podas = df_podas.groupby(COL_DESTINO)["MASSA_FLOAT"].sum().reset_index()
@@ -1079,15 +1079,15 @@ with tab_ia:
                         st.pyplot(fig)
                         
                         st.dataframe(df_proj.style.format({
-                            'Populacao_Projetada': '{:,.0f}',
-                            'Massa_Projetada_ton': '{:,.0f}'
+                            'Populacao_Projetada': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                            'Massa_Projetada_ton': lambda x: formatar_br(x, auto_precision=False, casas_override=0)
                         }))
                         
                         ultimo = df_proj.iloc[-1]
                         if titulo_proj == "Brasil":
-                            st.success(f"📌 **Em {ultimo['Ano']:.0f}, o Brasil precisará gerenciar aproximadamente {ultimo['Massa_Projetada_ton']:,.0f} toneladas de resíduos.**")
+                            st.success(f"📌 **Em {ultimo['Ano']:.0f}, o Brasil precisará gerenciar aproximadamente {formatar_br(ultimo['Massa_Projetada_ton'], auto_precision=False, casas_override=0)} toneladas de resíduos.**")
                         else:
-                            st.success(f"📌 **Em {ultimo['Ano']:.0f}, o município {titulo_proj} precisará gerenciar aproximadamente {ultimo['Massa_Projetada_ton']:,.0f} toneladas de resíduos.**")
+                            st.success(f"📌 **Em {ultimo['Ano']:.0f}, o município {titulo_proj} precisará gerenciar aproximadamente {formatar_br(ultimo['Massa_Projetada_ton'], auto_precision=False, casas_override=0)} toneladas de resíduos.**")
                     except Exception as e:
                         st.error(f"Erro na projeção: {e}")
     
@@ -1166,15 +1166,16 @@ with tab_ia:
                             # --- TABELA RESUMO ---
                             st.subheader("📈 Detalhamento Anual")
                             st.dataframe(df_sim.style.format({
-                                'Massa_Desviada_Acumulada(t)': '{:,.0f}',
-                                'Receita_Anual_BRL': 'R$ {:,.2f}',
-                                'Ganho_Adicional_BRL': 'R$ {:,.2f}',
-                                'Receita_Acumulada_BRL': 'R$ {:,.2f}'
+                                'Massa_Desviada_Acumulada(t)': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                                'Receita_Anual_BRL': lambda x: f"R$ {formatar_br(x, auto_precision=False, casas_override=2)}",
+                                'Ganho_Adicional_BRL': lambda x: f"R$ {formatar_br(x, auto_precision=False, casas_override=2)}",
+                                'Receita_Acumulada_BRL': lambda x: f"R$ {formatar_br(x, auto_precision=False, casas_override=2)}"
                             }))
                             
                             # --- MÉTRICA FINAL ---
                             valor_final = df_sim['Receita_Acumulada_BRL'].iloc[-1]
-                            st.success(f"💰 **Potencial total em {anos_sim} anos para {titulo_sim}: R$ {valor_final:,.2f}**")
+                            valor_final_fmt = formatar_br(valor_final, auto_precision=False, casas_override=2)
+                            st.success(f"💰 **Potencial total em {anos_sim} anos para {titulo_sim}: R$ {valor_final_fmt}**")
                             
                             # =========================================================
                             # 📊 DETALHAMENTO DOS CÁLCULOS (com formatação Brasileira e explicação temporal)
@@ -1224,9 +1225,7 @@ with tab_ia:
                                 = R\$ {receita_anual_fmt}
                                 """)
                                 
-                                # =========================================================
-                                # NOVA SEÇÃO: EXPLICAÇÃO TEMPORAL (DINÂMICA DO CÁLCULO)
-                                # =========================================================
+                                # Explicação temporal
                                 st.markdown("""
                                 ---
                                 ### ⏳ Como o tempo é considerado no cálculo?
@@ -1242,7 +1241,6 @@ with tab_ia:
                                 **Como isso se reflete nos créditos de carbono?**
                                 """)
                                 
-                                # Exemplo temporal com tabela
                                 st.markdown("""
                                 **🧮 Exemplo simplificado com 3 anos:**
 
@@ -1261,9 +1259,6 @@ with tab_ia:
                                 Ao longo de 20 anos, cada tonelada desviada para compostagem **evita** as emissões de metano que o aterro teria gerado.  
                                 O valor acumulado mostra o **potencial total de ganhos** com créditos de carbono.
                                 """)
-                                # =========================================================
-                                # FIM DA NOVA SEÇÃO
-                                # =========================================================
                                 
                                 # Tabela completa com emissões evitadas anuais
                                 df_sim_detalhe = df_sim.copy()
