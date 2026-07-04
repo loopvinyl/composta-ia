@@ -1131,14 +1131,22 @@ with tab_ia:
             if st.button("🚀 Executar Simulação de Cenários"):
                 with st.spinner("Calculando projeções..."):
                     try:
+                        # --- CÁLCULO DOS PARÂMETROS BASE ---
                         doc_pond, k_pond = calcular_doc_k_ponderado(df_mun_sim)
+                        
+                        # Emissões do aterro (baseline) para a massa atual
                         co2_aterro = calcular_co2eq_aterro_20anos(massa_aterro_atual, 0.8, k_pond, doc_pond)
+                        
+                        # Emissões da compostagem para a mesma massa
                         co2_compostagem = calcular_co2eq_compostagem_UNFCCC(massa_aterro_atual)
+                        
+                        # Emissões evitadas por tonelada desviada
                         co2_evitado_por_t = (co2_aterro - co2_compostagem) / massa_aterro_atual if massa_aterro_atual > 0 else 0
                         
                         if co2_evitado_por_t <= 0:
                             st.warning("O coeficiente de emissões evitadas é zero ou negativo. Verifique os cálculos.")
                         else:
+                            # --- EXECUTA A SIMULAÇÃO ---
                             df_sim = simular_cenarios_compostagem(
                                 massa_aterro_atual,
                                 co2_evitado_por_t,
@@ -1149,9 +1157,11 @@ with tab_ia:
                                 inflacao_carbono=inflacao_carbono
                             )
                             
+                            # --- GRÁFICO ---
                             fig = plot_simulacao_compostagem(df_sim)
                             st.pyplot(fig)
                             
+                            # --- TABELA RESUMO ---
                             st.subheader("📈 Detalhamento Anual")
                             st.dataframe(df_sim.style.format({
                                 'Massa_Desviada_Acumulada(t)': '{:,.0f}',
@@ -1160,8 +1170,57 @@ with tab_ia:
                                 'Receita_Acumulada_BRL': 'R$ {:,.2f}'
                             }))
                             
+                            # --- MÉTRICA FINAL ---
                             valor_final = df_sim['Receita_Acumulada_BRL'].iloc[-1]
                             st.success(f"💰 **Potencial total em {anos_sim} anos para {titulo_sim}: R$ {valor_final:,.2f}**")
+                            
+                            # =========================================================
+                            # 📊 DETALHAMENTO DOS CÁLCULOS (NOVO)
+                            # =========================================================
+                            with st.expander("📊 Ver detalhamento dos cálculos (baseline e compostagem)"):
+                                st.markdown("""
+                                ### 🔍 Metodologia utilizada
+                                - **Baseline (aterro)**: UNFCCC A6.4-AMT-003 – CH₄ apenas, φ=0.85, OX=0.383, GWP_CH4=28.
+                                - **Cenário de compostagem**: UNFCCC TOOL13 (AMS-III.F) – CH₄=0.002, N₂O=0.0002, GWP_CH4=28, GWP_N2O=265.
+                                - **Emissões evitadas** = emissões do aterro – emissões da compostagem.
+                                """)
+                                
+                                st.markdown(f"""
+                                **📌 Dados de entrada:**
+                                - Massa de orgânicos que vai para aterro atualmente: **{massa_aterro_atual:,.0f} t/ano**
+                                - Coeficiente de emissões do aterro por tonelada: **{co2_aterro / massa_aterro_atual if massa_aterro_atual > 0 else 0:.2f} tCO₂e/t**
+                                - Coeficiente de emissões da compostagem por tonelada: **{co2_compostagem / massa_aterro_atual if massa_aterro_atual > 0 else 0:.2f} tCO₂e/t**
+                                - Emissões evitadas por tonelada desviada: **{co2_evitado_por_t:.2f} tCO₂e/t**
+                                """)
+                                
+                                # Exemplo de cálculo para o primeiro ano
+                                st.markdown("**🧮 Exemplo de cálculo para o Ano 1:**")
+                                ano1 = df_sim.iloc[0]
+                                st.markdown(f"""
+                                - Massa desviada no ano 1: **{ano1['Massa_Desviada_Acumulada(t)']:,.0f} t** (aumento de {taxa_crescimento*100:.0f}% em relação ao ano atual)
+                                - Emissões evitadas no ano 1: **{ano1['Massa_Desviada_Acumulada(t)'] * co2_evitado_por_t:,.0f} tCO₂e**
+                                - Preço do carbono no ano 1: € {st.session_state.preco_carbono:.2f} (inflação de {inflacao_carbono*100:.0f}% ao ano)
+                                - Câmbio EUR/BRL: R$ {st.session_state.taxa_cambio:.2f}
+                                - **Receita anual (R$):** {ano1['Massa_Desviada_Acumulada(t)']:,.0f} × {co2_evitado_por_t:.2f} × {st.session_state.preco_carbono:.2f} × {st.session_state.taxa_cambio:.2f} = **R$ {ano1['Receita_Anual_BRL']:,.2f}**
+                                """)
+                                
+                                # Tabela completa com emissões evitadas anuais
+                                df_sim_detalhe = df_sim.copy()
+                                df_sim_detalhe['Emissoes_Evitadas_Anual(tCO2e)'] = df_sim_detalhe['Massa_Desviada_Acumulada(t)'] * co2_evitado_por_t
+                                st.markdown("**📊 Tabela completa com emissões evitadas:**")
+                                st.dataframe(df_sim_detalhe.style.format({
+                                    'Massa_Desviada_Acumulada(t)': '{:,.0f}',
+                                    'Emissoes_Evitadas_Anual(tCO2e)': '{:,.0f}',
+                                    'Receita_Anual_BRL': 'R$ {:,.2f}',
+                                    'Receita_Acumulada_BRL': 'R$ {:,.2f}'
+                                }))
+                                
+                                st.info("""
+                                💡 **Interpretação:**  
+                                A cada ano, a quantidade de resíduos desviada para compostagem aumenta, gerando mais emissões evitadas e, consequentemente, mais receita com créditos de carbono.  
+                                O valor acumulado mostra o potencial total de ganhos ao longo do período.
+                                """)
+                            
                             st.info("ℹ️ Esta simulação considera o aumento gradual da compostagem ano a ano, com base nos dados atuais do SNIS. O valor é acumulado.")
                     except Exception as e:
                         st.error(f"Erro na simulação: {e}")
