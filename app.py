@@ -474,49 +474,73 @@ with st.spinner("🤖 Inicializando o modelo de Inteligência Artificial..."):
 # =========================================================
 tab_tradicional, tab_ia = st.tabs(["📊 Análise Tradicional (SNIS)", "🤖 Insights com Inteligência Artificial"])
 
-# ======================== ABA TRADICIONAL ========================
+# ======================== ABA TRADICIONAL (REFATORADA) ========================
 with tab_tradicional:
     st.subheader(f"🇧🇷 Brasil — Síntese Nacional de RSU ({ano_selecionado})" if municipio == municipios[0] else f"📍 {municipio} - Ano {ano_selecionado}")
 
     # =========================================================
-    # 🗺️ Destinação Final
+    # 1. 🗺️ Destinação Final (com gráfico e tabela)
     # =========================================================
     st.markdown("---")
     st.subheader(f"🗺️ Para onde o resíduo está indo? (Destinação Final, {ano_selecionado})")
 
     ocultar_transbordo = st.checkbox("Ocultar transbordos", value=False)
 
+    df_mun_dest = df_mun.copy()
     if ocultar_transbordo:
-        df_mun = df_mun[~df_mun[COL_DESTINO].apply(
+        df_mun_dest = df_mun_dest[~df_mun_dest[COL_DESTINO].apply(
             lambda x: "TRANSBORDO" in normalizar_texto(x) if pd.notna(x) else False
         )]
 
-    df_mun["MASSA_FLOAT"] = pd.to_numeric(df_mun[COL_MASSA], errors="coerce").fillna(0)
+    df_mun_dest["MASSA_FLOAT"] = pd.to_numeric(df_mun_dest[COL_MASSA], errors="coerce").fillna(0)
+    massa_total_geral = df_mun_dest["MASSA_FLOAT"].sum()
 
-    massa_total = df_mun["MASSA_FLOAT"].sum()
-    st.markdown(f"### Total de resíduos coletados: **{formatar_br(massa_total, auto_precision=False, casas_override=0)} t**")
-    st.markdown("""
-    A tabela abaixo exibe **cada rota de coleta** e seu respectivo tipo de unidade, exatamente como declarado no SNIS.
-    Nenhuma agregação ou filtro foi aplicado – os valores correspondem à massa anual coletada para cada rota e destino.
-    """)
+    st.markdown(f"### Total de resíduos coletados: **{formatar_br(massa_total_geral, auto_precision=False, casas_override=0)} t**")
 
-    tabela_destino = df_mun[[COL_CODIGO_ROTA, COL_TIPO_COLETA, COL_DESTINO, "MASSA_FLOAT"]].copy()
+    # --- Gráfico de pizza dos principais destinos (usando a classificação da IA) ---
+    st.markdown("#### 📊 Distribuição dos principais destinos")
+    df_mun_dest['destino_agrupado'] = df_mun_dest[COL_DESTINO].apply(
+        lambda x: classificador_ia.prever(x, threshold=0.3) if pd.notna(x) else "Indefinido"
+    )
+    agg_grafico = df_mun_dest.groupby('destino_agrupado')['MASSA_FLOAT'].sum().reset_index()
+    agg_grafico = agg_grafico.sort_values('MASSA_FLOAT', ascending=False).head(8)  # Top 8 destinos
+
+    fig_dest, ax_dest = plt.subplots(figsize=(8, 6))
+    cores = plt.cm.Set3(np.linspace(0, 1, len(agg_grafico)))
+    ax_dest.pie(
+        agg_grafico['MASSA_FLOAT'],
+        labels=agg_grafico['destino_agrupado'],
+        autopct=lambda p: f'{p:.1f}%' if p > 1 else '',
+        startangle=90,
+        colors=cores,
+        textprops={'fontsize': 9}
+    )
+    ax_dest.axis('equal')
+    st.pyplot(fig_dest)
+    plt.close(fig_dest)
+    st.caption("📌 Classificação dos destinos feita pela IA (PLN) para padronizar as variações textuais do SNIS.")
+
+    # --- Tabela de rotas ---
+    st.markdown("#### 📋 Detalhamento por rota de coleta")
+    tabela_destino = df_mun_dest[[COL_CODIGO_ROTA, COL_TIPO_COLETA, COL_DESTINO, "MASSA_FLOAT"]].copy()
     tabela_destino = tabela_destino.rename(columns={
         COL_CODIGO_ROTA: "Código Rota",
         COL_TIPO_COLETA: "Tipo de Coleta",
         COL_DESTINO: "Tipo de Unidade (SNIS)",
         "MASSA_FLOAT": "Massa (t)"
     })
-
-    tabela_destino["%"] = (tabela_destino["Massa (t)"] / massa_total) * 100 if massa_total > 0 else 0
+    tabela_destino["%"] = (tabela_destino["Massa (t)"] / massa_total_geral) * 100 if massa_total_geral > 0 else 0
     tabela_destino["Massa (t)"] = tabela_destino["Massa (t)"].apply(formatar_numero_br)
     tabela_destino["%"] = tabela_destino["%"].apply(lambda x: formatar_numero_br(x, 1))
 
-    st.dataframe(tabela_destino[["Código Rota", "Tipo de Coleta", "Tipo de Unidade (SNIS)", "Massa (t)", "%"]], use_container_width=True)
-    st.caption("📌 Os dados refletem fielmente os registros do SNIS.")
+    st.dataframe(
+        tabela_destino[["Código Rota", "Tipo de Coleta", "Tipo de Unidade (SNIS)", "Massa (t)", "%"]],
+        use_container_width=True
+    )
+    st.caption("📌 Os dados refletem fielmente os registros do SNIS. A classificação dos destinos é feita pela IA.")
 
     # =========================================================
-    # 📊 Distribuição por tipo de destino (Brasil)
+    # 2. 📊 Distribuição por tipo de destino (Brasil)
     # =========================================================
     if municipio == municipios[0]:
         st.markdown("---")
@@ -524,7 +548,7 @@ with tab_tradicional:
 
         ocultar_transbordo_dist = st.checkbox("Ocultar transbordos", value=False, key="ocultar_transbordo_dist")
 
-        df_dist = df_mun.copy()
+        df_dist = df_mun_dest.copy()
         if ocultar_transbordo_dist:
             df_dist = df_dist[~df_dist[COL_DESTINO].apply(
                 lambda x: "TRANSBORDO" in normalizar_texto(x) if pd.notna(x) else False
@@ -533,26 +557,40 @@ with tab_tradicional:
         massa_total_dist = df_dist["MASSA_FLOAT"].sum()
         st.markdown(f"### Total de resíduos coletados: **{formatar_br(massa_total_dist, auto_precision=False, casas_override=0)} t**")
 
+        # Agregação por destino
         agg_destino = df_dist.groupby(COL_DESTINO)["MASSA_FLOAT"].sum().reset_index()
         agg_destino = agg_destino.sort_values("MASSA_FLOAT", ascending=False)
         agg_destino["Percentual (%)"] = (agg_destino["MASSA_FLOAT"] / massa_total_dist) * 100 if massa_total_dist > 0 else 0
         agg_destino["Massa (t)"] = agg_destino["MASSA_FLOAT"].apply(formatar_numero_br)
         agg_destino["Percentual (%)"] = agg_destino["Percentual (%)"].apply(lambda x: formatar_numero_br(x, 2))
+
         st.dataframe(
             agg_destino.rename(columns={COL_DESTINO: "Tipo de Unidade (SNIS)"})[["Tipo de Unidade (SNIS)", "Massa (t)", "Percentual (%)"]],
             use_container_width=True
         )
+
+        # Gráfico de barras horizontais dos principais destinos
+        st.markdown("#### 📊 Principais destinos (gráfico)")
+        top_destinos = agg_destino.head(10)
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.barh(top_destinos[COL_DESTINO], top_destinos["MASSA_FLOAT"], color='steelblue')
+        ax.set_xlabel('Massa (t)')
+        ax.set_title('Top 10 destinos de resíduos')
+        ax.xaxis.set_major_formatter(FuncFormatter(br_format))
+        st.pyplot(fig)
+        plt.close(fig)
+
         st.caption("Nota: a soma das massas pode exceder o total coletado devido a duplicidades nas rotas (ex.: transbordo e destino final).")
 
         # =========================================================
-        # 🏳️ Coleta de RSU pelos estados do Brasil
+        # 3. 🏳️ Coleta de RSU pelos estados do Brasil
         # =========================================================
         st.markdown("---")
         st.subheader(f"🏳️ Coleta de RSU pelos estados do Brasil ({ano_selecionado})")
 
         ocultar_transbordo_est = st.checkbox("Ocultar transbordos", value=False, key="ocultar_transbordo_est")
 
-        df_estados = df_mun.copy()
+        df_estados = df_mun_dest.copy()
         if ocultar_transbordo_est:
             df_estados = df_estados[~df_estados[COL_DESTINO].apply(
                 lambda x: "TRANSBORDO" in normalizar_texto(x) if pd.notna(x) else False
@@ -568,13 +606,25 @@ with tab_tradicional:
         agg_estados["%"] = agg_estados["%"].apply(lambda x: formatar_numero_br(x, 2))
         agg_estados["% acumulado"] = agg_estados["% acumulado"].apply(lambda x: formatar_numero_br(x, 2))
 
-        st.dataframe(
-            agg_estados.rename(columns={COL_UF: "Estado"})[["Estado", "Massa (t)", "%", "% acumulado"]],
-            use_container_width=True
-        )
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            st.dataframe(
+                agg_estados.rename(columns={COL_UF: "Estado"})[["Estado", "Massa (t)", "%", "% acumulado"]],
+                use_container_width=True
+            )
+        with col2:
+            # Gráfico de barras dos estados
+            fig, ax = plt.subplots(figsize=(6, 8))
+            top_estados = agg_estados.head(10)
+            ax.barh(top_estados[COL_UF], top_estados["MASSA_FLOAT"], color='forestgreen')
+            ax.set_xlabel('Massa (t)')
+            ax.set_title('Top 10 estados')
+            ax.xaxis.set_major_formatter(FuncFormatter(br_format))
+            st.pyplot(fig)
+            plt.close(fig)
 
     # =========================================================
-    # 🏆 RANKING MUNICIPAL (COM DOC/k DINÂMICO)
+    # 4. 🏆 RANKING MUNICIPAL (COM DOC/k DINÂMICO)
     # =========================================================
     if municipio == municipios[0]:
         st.markdown("---")
@@ -633,36 +683,47 @@ with tab_tradicional:
                         evitado_20anos = co2eq_aterro - co2eq_compostagem
                         receita_anual = (evitado_20anos / ANOS_PROJECAO) * preco * cambio
 
+                    # Calcula percentual de orgânicos na massa total do município
+                    massa_total_municipio = df_clean[df_clean[COL_MUNICIPIO] == mun]['MASSA_COLETADA'].sum()
+                    pct_org = (massa_total_local / massa_total_municipio) * 100 if massa_total_municipio > 0 else 0
+
                     mapeamento.append({
                         "Município": mun,
                         "UF": uf,
                         "Massa Total (t/ano)": massa_total_local,
                         "Massa para Aterro (t/ano)": massa_aterro_local,
+                        "% da massa total": pct_org,
                         "Tipo(s) de Unidade (SNIS)": destinos,
                         "Receita Potencial (R$/ano)": receita_anual
                     })
 
                 df_mapeamento = pd.DataFrame(mapeamento).sort_values("Massa Total (t/ano)", ascending=False)
 
-                st.dataframe(df_mapeamento.style.format({
-                    "Massa Total (t/ano)": lambda x: formatar_numero_br(x, None),
-                    "Massa para Aterro (t/ano)": lambda x: formatar_numero_br(x, None),
-                    "Receita Potencial (R$/ano)": lambda x: f"R$ {formatar_numero_br(x, None)}"
-                }), use_container_width=True, height=600)
+                st.dataframe(
+                    df_mapeamento.style.format({
+                        "Massa Total (t/ano)": lambda x: formatar_numero_br(x, None),
+                        "Massa para Aterro (t/ano)": lambda x: formatar_numero_br(x, None),
+                        "% da massa total": lambda x: formatar_br(x, auto_precision=False, casas_override=2) + '%',
+                        "Receita Potencial (R$/ano)": lambda x: f"R$ {formatar_numero_br(x, None)}"
+                    }),
+                    use_container_width=True,
+                    height=600
+                )
 
                 st.caption("""
                 - **Baseline (aterro)**: alinhado à UNFCCC A6.4-AMT-003 (Application B) – CH₄ apenas, φ=0.85, OX=0.383, GWP_CH4=28.
                 - **Cenário de compostagem**: UNFCCC TOOL13 / AMS-III.F – CH₄=0.002, N₂O=0.0002, GWP_CH4=28, GWP_N2O=265.
                 - **DOC e k**: calculados dinamicamente a partir da caracterização dos resíduos do SNIS (quando disponível).
+                - **% da massa total**: percentual da massa total de RSU do município que é composta por orgânicos da coleta seletiva.
                 - Receita potencial anual considerando o preço atual do carbono.
                 """)
 
     # =========================================================
-    # ♻️ ORGÂNICOS (com DOC/k dinâmico)
+    # 5. ♻️ ORGÂNICOS (com DOC/k dinâmico)
     # =========================================================
     st.markdown("---")
     st.subheader(f"♻️ Destinação da Coleta Seletiva de Resíduos Orgânicos ({ano_selecionado})")
-    df_organicos = df_mun[df_mun[COL_TIPO_COLETA].astype(str).str.contains(
+    df_organicos = df_mun_dest[df_mun_dest[COL_TIPO_COLETA].astype(str).str.contains(
         "seletiva.*orgânico|orgânico.*seletiva", case=False, na=False, regex=True)].copy()
 
     if not df_organicos.empty:
@@ -670,7 +731,7 @@ with tab_tradicional:
 
         ocultar_transbordo_org = st.checkbox("Ocultar transbordos", value=False, key="ocultar_transbordo_org")
 
-        df_mun_org = df_mun.copy()
+        df_mun_org = df_mun_dest.copy()
         if ocultar_transbordo_org:
             df_organicos = df_organicos[~df_organicos[COL_DESTINO].apply(
                 lambda x: "TRANSBORDO" in normalizar_texto(x) if pd.notna(x) else False
@@ -680,15 +741,34 @@ with tab_tradicional:
             )]
 
         total_organicos = df_organicos["MASSA_FLOAT"].sum()
-        massa_total_geral = df_mun_org["MASSA_FLOAT"].sum()
+        massa_total_geral_org = df_mun_org["MASSA_FLOAT"].sum()
 
         st.markdown(f"### Total de orgânicos coletados seletivamente: **{formatar_br(total_organicos, auto_precision=False, casas_override=2)} t**")
 
-        st.markdown("#### Tabela – Destino da coleta de recicláveis orgânicos")
+        # Gráfico de composição da destinação dos orgânicos
+        st.markdown("#### 📊 Composição da destinação dos orgânicos")
+        agg_org_pie = df_organicos.groupby(COL_DESTINO)["MASSA_FLOAT"].sum().reset_index()
+        agg_org_pie = agg_org_pie.sort_values("MASSA_FLOAT", ascending=False)
+        fig_pie, ax_pie = plt.subplots(figsize=(8, 6))
+        cores_pie = plt.cm.Set3(np.linspace(0, 1, len(agg_org_pie)))
+        ax_pie.pie(
+            agg_org_pie["MASSA_FLOAT"],
+            labels=agg_org_pie[COL_DESTINO],
+            autopct=lambda p: f'{p:.1f}%' if p > 1 else '',
+            startangle=90,
+            colors=cores_pie,
+            textprops={'fontsize': 9}
+        )
+        ax_pie.axis('equal')
+        st.pyplot(fig_pie)
+        plt.close(fig_pie)
+
+        # Tabela resumo
+        st.markdown("#### 📋 Tabela – Destino da coleta de recicláveis orgânicos")
         agg_org = df_organicos.groupby(COL_DESTINO)["MASSA_FLOAT"].sum().reset_index()
         agg_org = agg_org.sort_values("MASSA_FLOAT", ascending=False)
         agg_org["% do tipo"] = (agg_org["MASSA_FLOAT"] / total_organicos) * 100 if total_organicos > 0 else 0
-        agg_org["% do total no ano"] = (agg_org["MASSA_FLOAT"] / massa_total_geral) * 100 if massa_total_geral > 0 else 0
+        agg_org["% do total no ano"] = (agg_org["MASSA_FLOAT"] / massa_total_geral_org) * 100 if massa_total_geral_org > 0 else 0
 
         linhas = []
         for _, row in agg_org.iterrows():
@@ -699,7 +779,7 @@ with tab_tradicional:
                 "% do total no ano": formatar_numero_br(row["% do total no ano"], 4)
             })
 
-        perc_total_tipo = (total_organicos / massa_total_geral) * 100 if massa_total_geral > 0 else 0
+        perc_total_tipo = (total_organicos / massa_total_geral_org) * 100 if massa_total_geral_org > 0 else 0
         linhas.append({
             "Destino": "Total do tipo",
             "Massa Anual (t)": formatar_numero_br(total_organicos, 2),
@@ -709,7 +789,7 @@ with tab_tradicional:
 
         linhas.append({
             "Destino": "Total no ano",
-            "Massa Anual (t)": formatar_numero_br(massa_total_geral, 2),
+            "Massa Anual (t)": formatar_numero_br(massa_total_geral_org, 2),
             "% do tipo": " - ",
             "% do total no ano": "100,00%"
         })
@@ -717,25 +797,18 @@ with tab_tradicional:
         df_resumo = pd.DataFrame(linhas)
         st.dataframe(df_resumo, use_container_width=True)
 
-        st.markdown("#### Detalhamento por destino")
+        # Emissões detalhadas
+        st.subheader("🔥 Emissões detalhadas (Orgânicos) – Metodologia UNFCCC")
         df_org_dest = df_organicos.groupby(COL_DESTINO)["MASSA_FLOAT"].sum().reset_index()
         df_org_dest["%"] = (df_org_dest["MASSA_FLOAT"] / total_organicos) * 100 if total_organicos > 0 else 0
         df_org_dest = df_org_dest.sort_values("%", ascending=False)
-        df_org_dest_view = df_org_dest.copy()
-        df_org_dest_view["Massa (t)"] = df_org_dest_view["MASSA_FLOAT"].apply(formatar_numero_br)
-        df_org_dest_view["%"] = df_org_dest_view["%"].apply(lambda x: formatar_numero_br(x, 1))
-        st.dataframe(
-            df_org_dest_view.rename(columns={COL_DESTINO: "Tipo de Unidade (SNIS)"})[["Tipo de Unidade (SNIS)", "Massa (t)", "%"]],
-            use_container_width=True
-        )
-
-        st.subheader("🔥 Emissões detalhadas (Orgânicos) – Metodologia UNFCCC")
         df_org_dest["MCF"] = df_org_dest[COL_DESTINO].apply(lambda x: determinar_mcf_por_destino(x, 'organico'))
+        
         resultados = []
         co2eq_aterro_total = 0.0
         massa_aterro_total = 0.0
 
-        doc_pond, k_pond = calcular_doc_k_ponderado(df_mun)
+        doc_pond, k_pond = calcular_doc_k_ponderado(df_mun_dest)
 
         for _, row in df_org_dest.iterrows():
             massa_t, mcf = row["MASSA_FLOAT"], row["MCF"]
@@ -762,9 +835,7 @@ with tab_tradicional:
             col3.metric("CO₂e compostagem (20 anos)", f"{formatar_br(co2eq_compostagem, auto_precision=False, casas_override=2)} tCO₂e")
             col4.metric("Emissões Evitadas", f"{formatar_br(evitado, auto_precision=False, casas_override=2)} tCO₂e")
 
-            # =========================================================
-            # 💰 POTENCIAL DE CRÉDITOS DE CARBONO
-            # =========================================================
+            # Potencial de créditos de carbono
             st.markdown("---")
             st.subheader("💰 Potencial de Créditos de Carbono (Compostagem - UNFCCC)")
 
@@ -772,7 +843,7 @@ with tab_tradicional:
                 st.markdown("### 🌍 Cotações de Mercado")
                 col_cot1, col_cot2, col_cot3 = st.columns(3)
                 with col_cot1:
-                    if st.button("🔄 Atualizar Cotações"):
+                    if st.button("🔄 Atualizar Cotações", key="atualizar_cotacoes_org"):
                         preco, moeda, _, _, _ = obter_cotacao_carbono()
                         cambio, moeda_r, _, _ = obter_cotacao_euro_real()
                         st.session_state.preco_carbono = preco
@@ -800,25 +871,24 @@ with tab_tradicional:
                     "- **Cenário de compostagem**: UNFCCC TOOL13 / AMS-III.F – CH₄=0.002, N₂O=0.0002, GWP_CH4=28, GWP_N2O=265.\n"
                     "- **DOC e k**: ponderados pela caracterização dos resíduos (quando disponível).\n"
                     "- As quantidades exibidas na tela são arredondadas para duas casas decimais.")
-
         else:
             st.success("✅ Nenhum orgânico destinado a aterro.")
     else:
         st.info("ℹ️ Sem registros de coleta seletiva de orgânicos.")
 
     # =========================================================
-    # 🌳 DESTINO DA COLETA DE PODAS E GALHADAS
+    # 6. 🌳 DESTINO DA COLETA DE PODAS E GALHADAS
     # =========================================================
     st.markdown("---")
     st.subheader(f"🌳 Destinação da coleta de podas e galhadas ({ano_selecionado})")
-    df_podas = df_mun[df_mun[COL_TIPO_COLETA].astype(str).str.contains("áreas verdes públicas", case=False, na=False)].copy()
+    df_podas = df_mun_dest[df_mun_dest[COL_TIPO_COLETA].astype(str).str.contains("áreas verdes públicas", case=False, na=False)].copy()
 
     if not df_podas.empty:
         df_podas["MASSA_FLOAT"] = pd.to_numeric(df_podas[COL_MASSA], errors="coerce").fillna(0)
 
         ocultar_transbordo_podas = st.checkbox("Ocultar transbordos", value=False, key="ocultar_transbordo_podas")
 
-        df_mun_podas = df_mun.copy()
+        df_mun_podas = df_mun_dest.copy()
         if ocultar_transbordo_podas:
             df_podas = df_podas[~df_podas[COL_DESTINO].apply(
                 lambda x: "TRANSBORDO" in normalizar_texto(x) if pd.notna(x) else False
@@ -832,7 +902,15 @@ with tab_tradicional:
 
         st.markdown(f"### Total de podas e galhadas coletadas: **{formatar_br(total_podas, auto_precision=False, casas_override=2)} t**")
 
-        st.markdown("#### Tabela – Destino da coleta de podas e galhadas")
+        # Resumo rápido
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Participação no total", f"{formatar_br((total_podas/massa_total_geral_podas)*100 if massa_total_geral_podas>0 else 0, auto_precision=False, casas_override=2)}%")
+        with col2:
+            destino_principal = df_podas.groupby(COL_DESTINO)["MASSA_FLOAT"].sum().idxmax() if not df_podas.empty else "N/A"
+            st.metric("Destino principal", destino_principal)
+
+        st.markdown("#### 📋 Tabela – Destino da coleta de podas e galhadas")
         agg_podas = df_podas.groupby(COL_DESTINO)["MASSA_FLOAT"].sum().reset_index()
         agg_podas = agg_podas.sort_values("MASSA_FLOAT", ascending=False)
         agg_podas["% do tipo"] = (agg_podas["MASSA_FLOAT"] / total_podas) * 100 if total_podas > 0 else 0
@@ -878,7 +956,7 @@ with tab_tradicional:
     DOC/k: ponderados pela caracterização dos resíduos do SNIS (quando disponível) | Cotações em tempo real via Yahoo Finance e APIs de câmbio.
     """)
 
-# ======================== ABA DE IA ========================
+# ======================== ABA DE IA (mantida idêntica) ========================
 with tab_ia:
     st.header("🧠 Insights com Inteligência Artificial")
     
