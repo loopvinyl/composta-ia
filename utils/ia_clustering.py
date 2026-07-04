@@ -10,6 +10,7 @@ def preparar_dados_clusterizacao(df_municipios):
     """
     Prepara os dados dos municípios para clusterização.
     Detecta automaticamente as colunas de UF e destino.
+    Retorna X (features) e df_cluster (com os mesmos índices).
     """
     df = df_municipios.copy()
     
@@ -30,7 +31,7 @@ def preparar_dados_clusterizacao(df_municipios):
             col_destino = col
             break
     if col_destino is None:
-        # Se não encontrar, usa a última coluna que parece ter texto (fallback)
+        # Fallback: primeira coluna com tipo object
         for col in df.columns:
             if df[col].dtype == 'object':
                 col_destino = col
@@ -38,20 +39,18 @@ def preparar_dados_clusterizacao(df_municipios):
         if col_destino is None:
             col_destino = df.columns[-1]
 
-    # --- AGRUPAMENTO POR MUNICÍPIO E UF ---
-    # Grupo para calcular soma da massa e contagem de rotas
+    # --- AGRUPAMENTO POR MUNICÍPIO E UF (SEPARADO) ---
     grupo = df.groupby(['MUNICÍPIO', col_uf])
     
     # Soma da massa
     massa_total = grupo['MASSA_COLETADA'].sum().reset_index()
     massa_total.rename(columns={'MASSA_COLETADA': 'Massa_Total'}, inplace=True)
     
-    # Contagem de rotas (número de linhas por município)
+    # Contagem de rotas
     num_rotas = grupo.size().reset_index(name='Num_Rotas')
     
     # Concatenação de destinos (tratamento robusto)
     def concat_destinos(series):
-        # Converte para string, remove NaN, espaços vazios e junta
         strings = series.dropna().astype(str).str.strip()
         strings = strings[strings != '']
         return ','.join(strings.unique()) if not strings.empty else ''
@@ -59,15 +58,11 @@ def preparar_dados_clusterizacao(df_municipios):
     destinos = grupo[col_destino].apply(concat_destinos).reset_index(name='Destinos')
     
     # --- JUNÇÃO DOS DATAFRAMES ---
-    # Merge passo a passo
     df_cluster = massa_total.merge(num_rotas, on=['MUNICÍPIO', col_uf])
     df_cluster = df_cluster.merge(destinos, on=['MUNICÍPIO', col_uf])
-    
-    # Renomeia a coluna UF para padronizar
     df_cluster.rename(columns={col_uf: 'UF'}, inplace=True)
     
-    # --- CÁLCULO DE INDICADORES (percentuais de destino) ---
-    # Função para calcular percentuais para cada município
+    # --- CÁLCULO DE INDICADORES (percentuais) ---
     def calc_indicadores(grupo_municipio):
         destinos_series = grupo_municipio[col_destino].dropna().astype(str).str.lower()
         total = len(grupo_municipio)
@@ -83,16 +78,17 @@ def preparar_dados_clusterizacao(df_municipios):
     indicadores = df.groupby(['MUNICÍPIO', col_uf]).apply(calc_indicadores).reset_index()
     indicadores.rename(columns={col_uf: 'UF'}, inplace=True)
     
-    # Junta os indicadores ao df_cluster
     df_cluster = df_cluster.merge(indicadores, on=['MUNICÍPIO', 'UF'])
     
-    # --- SELEÇÃO DAS FEATURES PARA CLUSTERIZAÇÃO ---
+    # --- FILTRO: REMOVER LINHAS COM MASSA ZERO OU NEGATIVA ---
+    df_cluster = df_cluster[df_cluster['Massa_Total'] > 0].reset_index(drop=True)
+    
+    # --- SELEÇÃO DAS FEATURES ---
     features = ['Massa_Total', 'Num_Rotas', 'Pct_Aterro', 'Pct_Compostagem']
     X = df_cluster[features].copy()
     
-    # Trata valores faltantes e zeros
+    # Trata valores faltantes
     X = X.fillna(0)
-    X = X[X['Massa_Total'] > 0]  # remove municípios sem dados
     
     return X, df_cluster
 
