@@ -1707,10 +1707,10 @@ with tab_ia:
     """)
 
 # =========================================================
-# CONTATO E COLABORAÇÃO (NOVA SEÇÃO)
+# AUTORIA E USO (NOVA SEÇÃO)
 # =========================================================
 st.markdown("---")
-st.subheader("📬 Contato e colaboração")
+st.subheader("📬 Autoria e uso")
 
 st.markdown("""
 Este aplicativo foi desenvolvido por um servidor público federal com o objetivo de apoiar a gestão de resíduos sólidos, 
