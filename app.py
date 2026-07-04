@@ -135,6 +135,7 @@ def formatar_massa_br(valor):
         return "Não informado"
     return f"{formatar_br(valor)} t"
 
+# NOVA FUNÇÃO PARA FORMATAR EIXOS COM ABREVIAÇÕES (Mi, Bi)
 def formatar_eixo_abreviado(x, pos):
     """Formata números grandes para exibir como Mi (milhões) ou Bi (bilhões)."""
     if x == 0:
@@ -1163,7 +1164,7 @@ with tab_ia:
                         st.error(f"Erro na simulação: {e}")
 
     # =========================================================
-    # SEÇÃO 3: CENÁRIOS DE EXPANSÃO DA COMPOSTAGEM
+    # SEÇÃO 3: CENÁRIOS DE EXPANSÃO DA COMPOSTAGEM (REMODELADA)
     # =========================================================
     st.markdown("---")
     st.subheader("🌍 Cenários de Expansão da Compostagem no Brasil")
@@ -1173,6 +1174,9 @@ with tab_ia:
     priorizando os municípios que já possuem coleta seletiva de orgânicos.
     """)
 
+    # -----------------------------------------------------------------
+    # 1. Identificar municípios com coleta seletiva de orgânicos
+    # -----------------------------------------------------------------
     mask_organicos = df_clean[COL_TIPO_COLETA].astype(str).str.contains(
         "seletiva.*orgânico|orgânico.*seletiva", case=False, na=False, regex=True
     )
@@ -1181,6 +1185,9 @@ with tab_ia:
     if df_org.empty:
         st.info("Nenhum município registrou coleta seletiva de resíduos orgânicos no SNIS para este ano.")
     else:
+        # -----------------------------------------------------------------
+        # 2. Calcular massas de aterro e compostagem por município
+        # -----------------------------------------------------------------
         df_org['MCF'] = df_org[COL_DESTINO].apply(determinar_mcf_por_destino)
         df_aterro = df_org[df_org['MCF'] > 0].groupby(COL_MUNICIPIO).agg({COL_MASSA: 'sum'}).reset_index()
         df_aterro.rename(columns={COL_MASSA: 'Massa_Aterro'}, inplace=True)
@@ -1194,9 +1201,33 @@ with tab_ia:
         df_uf_mun.rename(columns={COL_UF: 'UF'}, inplace=True)
         df_mun_cenario = pd.merge(df_mun_cenario, df_uf_mun, on=COL_MUNICIPIO, how='left')
 
+        # Percentual de compostagem sobre a massa orgânica coletada seletivamente
         df_mun_cenario['Pct_Compostagem'] = (df_mun_cenario['Massa_Compostagem'] / df_mun_cenario['Massa_Total']) * 100
         df_mun_cenario['Pct_Compostagem'] = df_mun_cenario['Pct_Compostagem'].fillna(0).round(2)
 
+        # -----------------------------------------------------------------
+        # 2.1 Calcular o percentual de coleta seletiva dos municípios que já têm coleta
+        # -----------------------------------------------------------------
+        # Para cada município com coleta seletiva, calcular a massa total de RSU
+        df_total_mun = df_clean.groupby(COL_MUNICIPIO).agg({COL_MASSA: 'sum'}).reset_index()
+        df_total_mun.rename(columns={COL_MASSA: 'Massa_Total_RSU'}, inplace=True)
+
+        # Para cada município com coleta seletiva, calcular a massa de orgânicos coletada seletivamente
+        df_org_sum = df_org.groupby(COL_MUNICIPIO).agg({COL_MASSA: 'sum'}).reset_index()
+        df_org_sum.rename(columns={COL_MASSA: 'Massa_Seletiva_Organicos'}, inplace=True)
+
+        # Juntar e calcular o percentual de coleta seletiva sobre a massa total
+        df_pct_seletiva = pd.merge(df_total_mun, df_org_sum, on=COL_MUNICIPIO, how='inner')
+        df_pct_seletiva['Pct_Seletiva'] = (df_pct_seletiva['Massa_Seletiva_Organicos'] / df_pct_seletiva['Massa_Total_RSU']) * 100
+        df_pct_seletiva['Pct_Seletiva'] = df_pct_seletiva['Pct_Seletiva'].fillna(0).round(2)
+
+        # Adicionar UF para referência
+        df_uf_mun = df_clean[[COL_MUNICIPIO, COL_UF]].drop_duplicates(subset=[COL_MUNICIPIO])
+        df_pct_seletiva = pd.merge(df_pct_seletiva, df_uf_mun, on=COL_MUNICIPIO, how='left')
+
+        # -----------------------------------------------------------------
+        # 3. Exibir resumo atual
+        # -----------------------------------------------------------------
         total_aterro = df_mun_cenario['Massa_Aterro'].sum()
         total_compost = df_mun_cenario['Massa_Compostagem'].sum()
         total_massa_org = total_aterro + total_compost
@@ -1220,6 +1251,20 @@ with tab_ia:
             use_container_width=True
         )
 
+        # Adicionar a tabela com os percentuais de coleta seletiva
+        with st.expander("📋 Percentual de coleta seletiva dos municípios com coleta seletiva"):
+            st.dataframe(
+                df_pct_seletiva[['MUNICÍPIO', 'UF', 'Massa_Total_RSU', 'Massa_Seletiva_Organicos', 'Pct_Seletiva']].style.format({
+                    'Massa_Total_RSU': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                    'Massa_Seletiva_Organicos': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                    'Pct_Seletiva': lambda x: formatar_br(x, auto_precision=False, casas_override=2) + '%'
+                }),
+                use_container_width=True
+            )
+
+        # -----------------------------------------------------------------
+        # 4. Cenário 1 – Atual (com percentual real de compostagem)
+        # -----------------------------------------------------------------
         st.markdown("---")
         st.subheader("📌 Cenário 1 – Situação Atual (com percentual real de compostagem)")
 
@@ -1249,16 +1294,23 @@ with tab_ia:
         )
         st.caption(f"Percentual de compostagem sobre o total de orgânicos: {formatar_br(pct_compost_real, auto_precision=False, casas_override=2)}%")
 
+        # -----------------------------------------------------------------
+        # 5. Cenário 2 – Expansão da coleta seletiva para novos municípios (REMODELADO)
+        # -----------------------------------------------------------------
         st.markdown("---")
         st.subheader("📌 Cenário 2 – Expansão da coleta seletiva para novos municípios")
 
         st.markdown("""
         Este cenário considera a implementação da coleta seletiva de orgânicos em municípios que atualmente não a possuem.
-        A meta de cobertura (percentual da massa que será coletada seletivamente) pode ser definida como:
-        - **Realista**: utiliza o 1º quartil (25%) dos percentuais dos municípios que já fazem coleta seletiva.
-        - **Otimista**: utiliza a média dos percentuais dos municípios que já fazem coleta seletiva.
+
+        **Metodologia:**
+        - **Realista**: utiliza o **1º quartil (25%)** dos percentuais de coleta seletiva (massa de orgânicos / massa total de RSU) dos municípios que já possuem coleta seletiva.
+        - **Otimista**: utiliza a **média** dos percentuais de coleta seletiva dos municípios que já possuem coleta seletiva.
+
+        A **massa adicional desviada** é calculada aplicando a meta de cobertura à massa total de RSU dos municípios sem coleta seletiva. Dessa massa adicional coletada seletivamente, uma fração é efetivamente compostada (usando o percentual real de compostagem `pct_compost_real`).
         """)
 
+        # Identificar municípios sem coleta seletiva
         df_total_geral = df_clean.groupby(COL_MUNICIPIO).agg({
             COL_MASSA: 'sum',
             COL_UF: 'first'
@@ -1272,16 +1324,17 @@ with tab_ia:
         if massa_sem_seletiva == 0:
             st.info("✅ Todos os municípios já possuem coleta seletiva de orgânicos. Não há expansão possível.")
         else:
-            pct_25 = df_mun_cenario['Pct_Compostagem'].quantile(0.25)
-            pct_media = df_mun_cenario['Pct_Compostagem'].mean()
+            # Calcular percentis de coleta seletiva dos municípios que já têm
+            pct_25 = df_pct_seletiva['Pct_Seletiva'].quantile(0.25)
+            pct_media = df_pct_seletiva['Pct_Seletiva'].mean()
 
-            # Fallback para evitar 100% (quando todos os municípios têm 100% de cobertura)
-            if pct_25 >= 90:
-                pct_25 = 5.0
-                st.warning("⚠️ O 1º quartil calculado foi ≥ 90% (possível devido a dados inconsistentes). Usando valor de fallback de 5% para o cenário realista.")
-            if pct_media >= 90:
-                pct_media = 10.0
-                st.warning("⚠️ A média calculada foi ≥ 90% (possível devido a dados inconsistentes). Usando valor de fallback de 10% para o cenário otimista.")
+            # Fallback para evitar valores muito baixos ou inconsistentes
+            if pct_25 <= 0.01 or np.isnan(pct_25):
+                pct_25 = 0.5
+                st.warning("⚠️ O 1º quartil calculado foi muito baixo ou nulo. Usando valor de fallback de 0,5% para o cenário realista.")
+            if pct_media <= 0.01 or np.isnan(pct_media):
+                pct_media = 2.0
+                st.warning("⚠️ A média calculada foi muito baixa ou nula. Usando valor de fallback de 2,0% para o cenário otimista.")
 
             tipo_cenario = st.radio(
                 "Escolha a meta de cobertura para os novos municípios:",
@@ -1298,7 +1351,10 @@ with tab_ia:
 
             st.info(f"**Meta de cobertura escolhida:** {rotulo}")
 
+            # Massa adicional que será coletada seletivamente
             massa_adicional_coletada = massa_sem_seletiva * (meta_cobertura / 100)
+
+            # Dessa massa adicional coletada, qual percentual será efetivamente compostado?
             massa_adicional_compost = massa_adicional_coletada * (pct_compost_real / 100)
 
             evitado_adicional = massa_adicional_compost * co2_evitado_por_t
@@ -1311,14 +1367,16 @@ with tab_ia:
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric(
+                    "Massa adicional coletada seletivamente",
+                    f"{formatar_br(massa_adicional_coletada, auto_precision=False, casas_override=0)} t"
+                )
+                st.caption(f"Meta de cobertura: {formatar_br(meta_cobertura, auto_precision=False, casas_override=2)}%")
+            with col2:
+                st.metric(
                     "Massa adicional compostada",
                     f"{formatar_br(massa_adicional_compost, auto_precision=False, casas_override=0)} t"
                 )
-            with col2:
-                st.metric(
-                    "Emissões evitadas adicionais",
-                    f"{formatar_br(evitado_adicional, auto_precision=False, casas_override=2)} tCO₂e"
-                )
+                st.caption(f"Taxa de compostagem: {formatar_br(pct_compost_real, auto_precision=False, casas_override=2)}%")
             with col3:
                 st.metric(
                     "Receita adicional",
@@ -1354,12 +1412,12 @@ with tab_ia:
             st.info("""
             💡 **Interpretação:**  
             - O **Cenário 1** mostra a situação atual, com o percentual real de compostagem sobre os orgânicos coletados seletivamente.  
-            - O **Cenário 2** projeta o ganho ao implementar coleta seletiva em novos municípios, usando uma meta realista ou otimista de cobertura.  
+            - O **Cenário 2** projeta o ganho ao implementar coleta seletiva em novos municípios, usando uma meta realista (1º quartil) ou otimista (média) de cobertura.  
             - A taxa de compostagem aplicada sobre a nova coleta é a mesma observada atualmente (percentual real).
             """)
 
     # =========================================================
-    # SEÇÃO 4: ANÁLISE DE COBERTURA DA COLETA SELETIVA DE ORGÂNICOS
+    # SEÇÃO 4: ANÁLISE DE COBERTURA DA COLETA SELETIVA DE ORGÂNICOS (MANTIDA)
     # =========================================================
     st.markdown("---")
     st.subheader("📊 Análise de Cobertura da Coleta Seletiva de Orgânicos")
@@ -1369,6 +1427,9 @@ with tab_ia:
     e projeta o impacto de uma expansão da cobertura para todos os municípios, com três cenários.
     """)
 
+    # -----------------------------------------------------------------
+    # 1. Calcular massa total e massa de coleta seletiva por município
+    # -----------------------------------------------------------------
     df_total = df_clean.groupby(COL_MUNICIPIO).agg({
         COL_MASSA: 'sum',
         COL_UF: 'first'
@@ -1389,6 +1450,9 @@ with tab_ia:
     df_cobertura['Pct_Seletiva'] = df_cobertura['Pct_Seletiva'].round(2)
     df_cobertura['Possui_Seletiva'] = df_cobertura['Massa_Seletiva_Organicos'] > 0
 
+    # -----------------------------------------------------------------
+    # 2. Resumo nacional
+    # -----------------------------------------------------------------
     total_municipios = len(df_cobertura)
     municipios_com_seletiva = df_cobertura[df_cobertura['Possui_Seletiva']].shape[0]
     municipios_sem_seletiva = total_municipios - municipios_com_seletiva
@@ -1410,6 +1474,9 @@ with tab_ia:
     col2.metric("Percentual nacional (massa)", f"{formatar_br(pct_seletiva_brasil, auto_precision=False, casas_override=2)}%")
     col3.metric("Média municipal (não ponderada)", f"{formatar_br(media_pct_municipios, auto_precision=False, casas_override=2)}%")
 
+    # =========================================================
+    # 🏆 TOP 10 MUNICÍPIOS
+    # =========================================================
     st.markdown("### 🏆 Destaques da Coleta Seletiva de Orgânicos")
 
     df_com_seletiva = df_cobertura[df_cobertura['Possui_Seletiva']].copy()
@@ -1470,6 +1537,9 @@ with tab_ia:
     st.pyplot(fig)
     plt.close(fig)
 
+    # -----------------------------------------------------------------
+    # 3. Cenários de expansão (com massa compostada em todos os cards)
+    # -----------------------------------------------------------------
     st.markdown("### 🚀 Cenários de Expansão da Cobertura")
 
     st.markdown("""
@@ -1490,13 +1560,13 @@ with tab_ia:
         pct_25 = 0
         pct_media = 0
 
-    # Fallback para evitar 100%
-    if pct_25 >= 90:
-        pct_25 = 5.0
-        st.warning("⚠️ O 1º quartil calculado foi ≥ 90% (possível devido a dados inconsistentes). Usando valor de fallback de 5% para o cenário realista.")
-    if pct_media >= 90:
-        pct_media = 10.0
-        st.warning("⚠️ A média calculada foi ≥ 90% (possível devido a dados inconsistentes). Usando valor de fallback de 10% para o cenário otimista.")
+    # Fallback para evitar valores inconsistentes
+    if pct_25 <= 0.01 or np.isnan(pct_25):
+        pct_25 = 0.5
+        st.warning("⚠️ O 1º quartil calculado foi muito baixo ou nulo. Usando valor de fallback de 0,5% para o cenário realista.")
+    if pct_media <= 0.01 or np.isnan(pct_media):
+        pct_media = 2.0
+        st.warning("⚠️ A média calculada foi muito baixa ou nula. Usando valor de fallback de 2,0% para o cenário otimista.")
 
     df_sem_seletiva = df_cobertura[~df_cobertura['Possui_Seletiva']]
     massa_sem_seletiva = df_sem_seletiva['Massa_Total'].sum()
