@@ -888,6 +888,7 @@ with tab_ia:
     - **Projeção de geração de resíduos per capita** com base no crescimento populacional (município ou Brasil)
     - **Simulação de cenários de compostagem** e potencial de ganhos com créditos de carbono (município ou Brasil)
     - **Clusterização de municípios** por perfil de resíduos (K-Means)
+    - **Análise de cobertura** da coleta seletiva de orgânicos e cenários de expansão
     """)
     
     # =========================================================
@@ -1440,6 +1441,157 @@ with tab_ia:
                 - O **Cenário 2** é mais realista, considerando um aumento gradual ano a ano na taxa de desvio.
                 - Ambos os cenários consideram apenas os municípios que já possuem coleta seletiva de orgânicos.
                 """)
+
+    # =========================================================
+    # SEÇÃO 4: ANÁLISE DE COBERTURA DA COLETA SELETIVA DE ORGÂNICOS
+    # =========================================================
+    st.markdown("---")
+    st.subheader("📊 Análise de Cobertura da Coleta Seletiva de Orgânicos")
+
+    st.markdown("""
+    Esta seção analisa o percentual da massa total de resíduos que é coberta pela coleta seletiva de orgânicos em cada município,
+    e projeta o impacto de uma expansão da cobertura para todos os municípios.
+    """)
+
+    # -----------------------------------------------------------------
+    # 1. Calcular massa total e massa de coleta seletiva por município
+    # -----------------------------------------------------------------
+    # Agrupa por município para calcular massa total
+    df_total = df_clean.groupby(COL_MUNICIPIO).agg({COL_MASSA: 'sum'}).reset_index()
+    df_total.rename(columns={COL_MASSA: 'Massa_Total'}, inplace=True)
+
+    # Agrupa por município para calcular massa de coleta seletiva de orgânicos
+    mask_organicos = df_clean[COL_TIPO_COLETA].astype(str).str.contains(
+        "seletiva.*orgânico|orgânico.*seletiva", case=False, na=False, regex=True
+    )
+    df_seletiva = df_clean[mask_organicos].groupby(COL_MUNICIPIO).agg({COL_MASSA: 'sum'}).reset_index()
+    df_seletiva.rename(columns={COL_MASSA: 'Massa_Seletiva_Organicos'}, inplace=True)
+
+    # Junta os dados
+    df_cobertura = pd.merge(df_total, df_seletiva, on=COL_MUNICIPIO, how='left').fillna(0)
+    df_cobertura['Pct_Seletiva'] = (df_cobertura['Massa_Seletiva_Organicos'] / df_cobertura['Massa_Total']) * 100
+    df_cobertura['Pct_Seletiva'] = df_cobertura['Pct_Seletiva'].round(2)
+    df_cobertura['Possui_Seletiva'] = df_cobertura['Massa_Seletiva_Organicos'] > 0
+
+    # -----------------------------------------------------------------
+    # 2. Resumo nacional
+    # -----------------------------------------------------------------
+    total_municipios = len(df_cobertura)
+    municipios_com_seletiva = df_cobertura[df_cobertura['Possui_Seletiva']].shape[0]
+    municipios_sem_seletiva = total_municipios - municipios_com_seletiva
+
+    massa_total_brasil = df_cobertura['Massa_Total'].sum()
+    massa_seletiva_brasil = df_cobertura['Massa_Seletiva_Organicos'].sum()
+    pct_seletiva_brasil = (massa_seletiva_brasil / massa_total_brasil) * 100 if massa_total_brasil > 0 else 0
+
+    # Média dos percentuais municipais (não ponderada pela massa)
+    media_pct_municipios = df_cobertura[df_cobertura['Massa_Total'] > 0]['Pct_Seletiva'].mean()
+
+    st.markdown("### 📊 Resumo Nacional")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Municípios totais", total_municipios)
+    col2.metric("Com coleta seletiva de orgânicos", municipios_com_seletiva)
+    col3.metric("Sem coleta seletiva de orgânicos", municipios_sem_seletiva)
+    col4.metric("Massa total de RSU", f"{formatar_br(massa_total_brasil, auto_precision=False, casas_override=0)} t")
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Massa em coleta seletiva orgânica", f"{formatar_br(massa_seletiva_brasil, auto_precision=False, casas_override=0)} t")
+    col2.metric("Percentual nacional (massa)", f"{formatar_br(pct_seletiva_brasil, auto_precision=False, casas_override=2)}%")
+    col3.metric("Média municipal (não ponderada)", f"{formatar_br(media_pct_municipios, auto_precision=False, casas_override=2)}%")
+
+    # Tabela detalhada (com opção de expandir)
+    with st.expander("📋 Detalhamento por município (clique para expandir)"):
+        st.dataframe(
+            df_cobertura.style.format({
+                'Massa_Total': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                'Massa_Seletiva_Organicos': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                'Pct_Seletiva': lambda x: formatar_br(x, auto_precision=False, casas_override=2) + '%'
+            }),
+            use_container_width=True
+        )
+
+    # Gráfico de distribuição dos percentuais
+    st.subheader("📊 Distribuição dos percentuais de cobertura")
+    fig, ax = plt.subplots(figsize=(10, 6))
+    # Filtra municípios com massa > 0 e percentual > 0 para o histograma
+    df_plot = df_cobertura[df_cobertura['Massa_Total'] > 0]
+    bins = np.linspace(0, 100, 21)  # 21 bins de 0 a 100%
+    ax.hist(df_plot['Pct_Seletiva'], bins=bins, color='skyblue', edgecolor='black', alpha=0.7)
+    ax.axvline(pct_seletiva_brasil, color='red', linestyle='--', label=f'Média nacional (massa): {pct_seletiva_brasil:.2f}%')
+    ax.axvline(media_pct_municipios, color='green', linestyle='--', label=f'Média municipal: {media_pct_municipios:.2f}%')
+    ax.set_xlabel('Percentual de coleta seletiva de orgânicos (%)')
+    ax.set_ylabel('Número de municípios')
+    ax.set_title('Distribuição da cobertura da coleta seletiva de orgânicos por município')
+    ax.legend()
+    ax.grid(True, linestyle='--', alpha=0.3)
+    st.pyplot(fig)
+
+    # -----------------------------------------------------------------
+    # 3. Cenário de expansão: todos os municípios com coleta seletiva
+    # -----------------------------------------------------------------
+    st.markdown("### 🚀 Cenário de Expansão: Universalização da Coleta Seletiva")
+
+    st.markdown("""
+    Simule o impacto se **todos os municípios que não têm coleta seletiva de orgânicos passarem a ter**, 
+    alcançando o mesmo percentual médio de cobertura dos municípios que já possuem coleta seletiva.
+    """)
+
+    # Calcular a média do percentual de cobertura dos municípios que JÁ POSSUEM coleta seletiva
+    df_com_seletiva = df_cobertura[df_cobertura['Possui_Seletiva']]
+    if not df_com_seletiva.empty:
+        media_pct_alvo = df_com_seletiva['Pct_Seletiva'].mean()
+    else:
+        media_pct_alvo = 0
+
+    # Calcular a massa adicional que seria desviada
+    df_sem_seletiva = df_cobertura[~df_cobertura['Possui_Seletiva']]
+    massa_sem_seletiva = df_sem_seletiva['Massa_Total'].sum()
+    massa_adicional = massa_sem_seletiva * (media_pct_alvo / 100)
+
+    # Emissões evitadas e receita adicionais
+    doc_medio, k_medio = DOC_PADRAO, K_PADRAO
+    co2_aterro_por_t = calcular_co2eq_aterro_20anos(1, 0.8, k_medio, doc_medio)
+    co2_compost_por_t = calcular_co2eq_compostagem_UNFCCC(1)
+    co2_evitado_por_t = co2_aterro_por_t - co2_compost_por_t
+
+    evitado_adicional = massa_adicional * co2_evitado_por_t
+    receita_adicional = evitado_adicional * st.session_state.preco_carbono * st.session_state.taxa_cambio
+
+    # Exibir resultados do cenário
+    if massa_adicional > 0:
+        st.markdown("#### 📈 Resultados do Cenário de Expansão")
+        col1, col2, col3 = st.columns(3)
+        col1.metric(
+            "Massa adicional desviada",
+            f"{formatar_br(massa_adicional, auto_precision=False, casas_override=0)} t"
+        )
+        col2.metric(
+            "Emissões evitadas adicionais",
+            f"{formatar_br(evitado_adicional, auto_precision=False, casas_override=2)} tCO₂e"
+        )
+        col3.metric(
+            "Receita potencial adicional",
+            f"R$ {formatar_br(receita_adicional, auto_precision=False, casas_override=2)}",
+            help="Receita total com créditos de carbono para a massa adicional desviada para compostagem."
+        )
+
+        # Comparação com o cenário atual
+        st.caption(f"""
+        **Comparação:**  
+        - Atualmente, a coleta seletiva de orgânicos cobre **{formatar_br(pct_seletiva_brasil, auto_precision=False, casas_override=2)}%** da massa total de RSU.  
+        - Municípios que já têm coleta seletiva cobrem, em média, **{formatar_br(media_pct_alvo, auto_precision=False, casas_override=2)}%** da sua massa total.  
+        - Se todos os municípios sem coleta seletiva alcançassem esse mesmo patamar, a cobertura nacional chegaria a **{formatar_br(((massa_seletiva_brasil + massa_adicional) / massa_total_brasil) * 100 if massa_total_brasil > 0 else 0, auto_precision=False, casas_override=2)}%** da massa total.  
+        - A receita adicional seria de **R$ {formatar_br(receita_adicional, auto_precision=False, casas_override=2)}**.
+        """)
+    else:
+        st.info("Todos os municípios já possuem coleta seletiva de orgânicos ou não há dados suficientes para o cálculo.")
+
+    st.info("""
+    💡 **Interpretação:**  
+    - Este cenário considera que os municípios sem coleta seletiva alcançam o mesmo nível de cobertura dos municípios que já a possuem.  
+    - A receita adicional representa o ganho financeiro com créditos de carbono se a coleta seletiva de orgânicos for universalizada com base nos padrões atuais.  
+    - Esse cenário é mais realista do que assumir 100% de cobertura, pois respeita as limitações operacionais e logísticas atuais.
+    """)
 
 # =========================================================
 # RODAPÉ GERAL DO APP
