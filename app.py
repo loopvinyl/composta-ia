@@ -1469,7 +1469,7 @@ with tab_ia:
             """)
 
     # =========================================================
-    # SEÇÃO 4: ANÁLISE DE COBERTURA DA COLETA SELETIVA DE ORGÂNICOS
+    # SEÇÃO 4: ANÁLISE DE COBERTURA DA COLETA SELETIVA DE ORGÂNICOS (COM A CORREÇÃO)
     # =========================================================
     st.markdown("---")
     st.subheader("📊 Análise de Cobertura da Coleta Seletiva de Orgânicos")
@@ -1593,7 +1593,7 @@ with tab_ia:
     plt.close(fig)
 
     # -----------------------------------------------------------------
-    # 3. Cenários de expansão (com massa compostada em cada um)
+    # 3. Cenários de expansão (com massa compostada em todos os cards)
     # -----------------------------------------------------------------
     st.markdown("### 🚀 Cenários de Expansão da Cobertura")
 
@@ -1645,7 +1645,7 @@ with tab_ia:
     col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown("#### 📉 Cenário Atual (Pessimista)")
-        st.metric("Massa desviada", f"{formatar_br(massa_compostada_atual, auto_precision=False, casas_override=0)} t")
+        st.metric("Massa compostada", f"{formatar_br(massa_compostada_atual, auto_precision=False, casas_override=0)} t")   # <-- ADICIONADO
         st.metric("Emissões evitadas", f"{formatar_br(evitado_atual, auto_precision=False, casas_override=2)} tCO₂e")
         st.metric("Receita", f"R$ {formatar_br(receita_atual, auto_precision=False, casas_override=2)}")
         st.caption(f"Cobertura nacional: {formatar_br(pct_seletiva_brasil, auto_precision=False, casas_override=2)}%")
