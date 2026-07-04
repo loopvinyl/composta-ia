@@ -135,7 +135,6 @@ def formatar_massa_br(valor):
         return "Não informado"
     return f"{formatar_br(valor)} t"
 
-# NOVA FUNÇÃO PARA FORMATAR EIXOS COM ABREVIAÇÕES (Mi, Bi)
 def formatar_eixo_abreviado(x, pos):
     """Formata números grandes para exibir como Mi (milhões) ou Bi (bilhões)."""
     if x == 0:
@@ -1221,9 +1220,14 @@ with tab_ia:
         df_pct_seletiva['Pct_Seletiva'] = (df_pct_seletiva['Massa_Seletiva_Organicos'] / df_pct_seletiva['Massa_Total_RSU']) * 100
         df_pct_seletiva['Pct_Seletiva'] = df_pct_seletiva['Pct_Seletiva'].fillna(0).round(2)
 
-        # Adicionar UF para referência
-        df_uf_mun = df_clean[[COL_MUNICIPIO, COL_UF]].drop_duplicates(subset=[COL_MUNICIPIO])
-        df_pct_seletiva = pd.merge(df_pct_seletiva, df_uf_mun, on=COL_MUNICIPIO, how='left')
+        # Adicionar UF para referência (corrigido)
+        df_uf_mun2 = df_clean[[COL_MUNICIPIO, COL_UF]].drop_duplicates(subset=[COL_MUNICIPIO])
+        df_uf_mun2 = df_uf_mun2.rename(columns={COL_UF: 'UF'})
+        df_pct_seletiva = pd.merge(df_pct_seletiva, df_uf_mun2, on=COL_MUNICIPIO, how='left')
+
+        # Se a coluna 'UF' não existir por algum motivo, criamos uma coluna vazia
+        if 'UF' not in df_pct_seletiva.columns:
+            df_pct_seletiva['UF'] = ''
 
         # -----------------------------------------------------------------
         # 3. Exibir resumo atual
@@ -1251,10 +1255,14 @@ with tab_ia:
             use_container_width=True
         )
 
-        # Adicionar a tabela com os percentuais de coleta seletiva
+        # Adicionar a tabela com os percentuais de coleta seletiva (com verificação de coluna UF)
         with st.expander("📋 Percentual de coleta seletiva dos municípios com coleta seletiva"):
+            # Define as colunas a exibir
+            cols_to_show = ['MUNICÍPIO', 'Massa_Total_RSU', 'Massa_Seletiva_Organicos', 'Pct_Seletiva']
+            if 'UF' in df_pct_seletiva.columns:
+                cols_to_show.insert(1, 'UF')
             st.dataframe(
-                df_pct_seletiva[['MUNICÍPIO', 'UF', 'Massa_Total_RSU', 'Massa_Seletiva_Organicos', 'Pct_Seletiva']].style.format({
+                df_pct_seletiva[cols_to_show].style.format({
                     'Massa_Total_RSU': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
                     'Massa_Seletiva_Organicos': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
                     'Pct_Seletiva': lambda x: formatar_br(x, auto_precision=False, casas_override=2) + '%'
@@ -1295,7 +1303,7 @@ with tab_ia:
         st.caption(f"Percentual de compostagem sobre o total de orgânicos: {formatar_br(pct_compost_real, auto_precision=False, casas_override=2)}%")
 
         # -----------------------------------------------------------------
-        # 5. Cenário 2 – Expansão da coleta seletiva para novos municípios (REMODELADO)
+        # 5. Cenário 2 – Expansão da coleta seletiva para novos municípios
         # -----------------------------------------------------------------
         st.markdown("---")
         st.subheader("📌 Cenário 2 – Expansão da coleta seletiva para novos municípios")
@@ -1417,7 +1425,7 @@ with tab_ia:
             """)
 
     # =========================================================
-    # SEÇÃO 4: ANÁLISE DE COBERTURA DA COLETA SELETIVA DE ORGÂNICOS (MANTIDA)
+    # SEÇÃO 4: ANÁLISE DE COBERTURA DA COLETA SELETIVA DE ORGÂNICOS
     # =========================================================
     st.markdown("---")
     st.subheader("📊 Análise de Cobertura da Coleta Seletiva de Orgânicos")
