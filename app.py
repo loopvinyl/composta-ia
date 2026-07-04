@@ -1306,7 +1306,7 @@ with tab_ia:
                         st.error(f"Erro na simulação: {e}")
 
     # =========================================================
-    # SEÇÃO 3: CENÁRIOS DE EXPANSÃO DA COMPOSTAGEM NO BRASIL (CORRIGIDA)
+    # SEÇÃO 3: CENÁRIOS DE EXPANSÃO DA COMPOSTAGEM NO BRASIL (REFORMULADA)
     # =========================================================
     st.markdown("---")
     st.subheader("🌍 Cenários de Expansão da Compostagem no Brasil")
@@ -1331,143 +1331,205 @@ with tab_ia:
         # 2. Calcular massas de aterro e compostagem por município
         # -----------------------------------------------------------------
         df_org['MCF'] = df_org[COL_DESTINO].apply(determinar_mcf_por_destino)
-        # Massa para aterro (MCF > 0)
+        # Massa para aterro (MCF > 0) e compostagem (MCF == 0)
         df_aterro = df_org[df_org['MCF'] > 0].groupby(COL_MUNICIPIO).agg({COL_MASSA: 'sum'}).reset_index()
         df_aterro.rename(columns={COL_MASSA: 'Massa_Aterro'}, inplace=True)
-        # Massa para compostagem (MCF == 0)
         df_compost = df_org[df_org['MCF'] == 0].groupby(COL_MUNICIPIO).agg({COL_MASSA: 'sum'}).reset_index()
         df_compost.rename(columns={COL_MASSA: 'Massa_Compostagem'}, inplace=True)
 
         # Junta os dados
         df_mun_cenario = pd.merge(df_aterro, df_compost, on=COL_MUNICIPIO, how='outer').fillna(0)
         df_mun_cenario['Massa_Total'] = df_mun_cenario['Massa_Aterro'] + df_mun_cenario['Massa_Compostagem']
-        df_mun_cenario['Pct_Compostagem'] = (df_mun_cenario['Massa_Compostagem'] / df_mun_cenario['Massa_Total']) * 100
-        df_mun_cenario['Pct_Aterro'] = (df_mun_cenario['Massa_Aterro'] / df_mun_cenario['Massa_Total']) * 100
 
-        # Totais nacionais atuais
+        # Adiciona UF para a tabela de municípios
+        df_uf_mun = df_clean[[COL_MUNICIPIO, COL_UF]].drop_duplicates(subset=[COL_MUNICIPIO])
+        df_uf_mun.rename(columns={COL_UF: 'UF'}, inplace=True)
+        df_mun_cenario = pd.merge(df_mun_cenario, df_uf_mun, on=COL_MUNICIPIO, how='left')
+
+        # Percentual de compostagem sobre a massa orgânica coletada seletivamente
+        df_mun_cenario['Pct_Compostagem'] = (df_mun_cenario['Massa_Compostagem'] / df_mun_cenario['Massa_Total']) * 100
+        df_mun_cenario['Pct_Compostagem'] = df_mun_cenario['Pct_Compostagem'].fillna(0).round(2)
+
+        # Totais nacionais
         total_aterro = df_mun_cenario['Massa_Aterro'].sum()
         total_compost = df_mun_cenario['Massa_Compostagem'].sum()
-        total_massa = total_aterro + total_compost
-        pct_comp_atual = (total_compost / total_massa) * 100 if total_massa > 0 else 0
+        total_massa_org = total_aterro + total_compost
+
+        # Percentual real de compostagem sobre o total de orgânicos coletados seletivamente
+        pct_compost_real = (total_compost / total_massa_org) * 100 if total_massa_org > 0 else 0
 
         # -----------------------------------------------------------------
-        # 3. Exibir resumo atual
+        # 3. Exibir resumo atual e tabela de municípios
         # -----------------------------------------------------------------
         st.markdown("### 📊 Cenário Atual")
         col1, col2, col3 = st.columns(3)
         col1.metric("Municípios com coleta seletiva", len(df_mun_cenario))
-        col2.metric("Total de orgânicos coletados", f"{formatar_br(total_massa, auto_precision=False, casas_override=0)} t")
-        col3.metric("Percentual destinado à compostagem", f"{formatar_br(pct_comp_atual, auto_precision=False, casas_override=1)}%")
+        col2.metric("Total de orgânicos coletados", f"{formatar_br(total_massa_org, auto_precision=False, casas_override=0)} t")
+        col3.metric("Percentual destinado à compostagem", f"{formatar_br(pct_compost_real, auto_precision=False, casas_override=2)}%")
 
-        # Tabela dos municípios
-        with st.expander("📋 Detalhamento por município (clique para expandir)"):
-            st.dataframe(
-                df_mun_cenario.style.format({
-                    'Massa_Aterro': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
-                    'Massa_Compostagem': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
-                    'Massa_Total': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
-                    'Pct_Compostagem': lambda x: formatar_br(x, auto_precision=False, casas_override=1) + '%',
-                    'Pct_Aterro': lambda x: formatar_br(x, auto_precision=False, casas_override=1) + '%'
-                }),
-                use_container_width=True
-            )
+        # Tabela com municípios que têm coleta seletiva e seu percentual de compostagem
+        st.markdown("#### 📋 Municípios com coleta seletiva – detalhamento")
+        df_mun_detalhe = df_mun_cenario[['MUNICÍPIO', 'UF', 'Massa_Total', 'Massa_Compostagem', 'Pct_Compostagem']].copy()
+        df_mun_detalhe = df_mun_detalhe.sort_values('Pct_Compostagem', ascending=False)
+        st.dataframe(
+            df_mun_detalhe.style.format({
+                'Massa_Total': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                'Massa_Compostagem': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                'Pct_Compostagem': lambda x: formatar_br(x, auto_precision=False, casas_override=2) + '%'
+            }),
+            use_container_width=True
+        )
 
         # -----------------------------------------------------------------
-        # 4. Parâmetros para cenários futuros
+        # 4. Cenário 1 – Atual (com percentual real)
         # -----------------------------------------------------------------
-        st.markdown("### 🚀 Cenários Futuros")
-        anos_cenario = st.slider("Horizonte de projeção (anos)", 5, 30, 10, key="anos_cenario")
-        taxa_crescimento_cenario = st.slider("Taxa anual de aumento da compostagem (%)", 5, 30, 15, 1, key="taxa_cenario") / 100
+        st.markdown("---")
+        st.subheader("📌 Cenário 1 – Situação Atual (com percentual real de compostagem)")
 
-        # Calcular o co2_evitado_por_t médio (usando os parâmetros padrão, pois é uma estimativa nacional)
+        # Coeficiente de emissões evitadas (médio, usando parâmetros padrão)
         doc_medio, k_medio = DOC_PADRAO, K_PADRAO
-        co2_aterro_por_t = calcular_co2eq_aterro_20anos(1, 0.8, k_medio, doc_medio)  # MCF=0.8 (aterro sanitário típico)
+        co2_aterro_por_t = calcular_co2eq_aterro_20anos(1, 0.8, k_medio, doc_medio)
         co2_compost_por_t = calcular_co2eq_compostagem_UNFCCC(1)
         co2_evitado_por_t = co2_aterro_por_t - co2_compost_por_t
 
-        # Botão para executar a simulação
-        if st.button("📈 Simular Cenários de Expansão"):
-            with st.spinner("Calculando cenários..."):
-                # --- Cenário 1: Desvio total de TODOS os orgânicos coletados seletivamente ---
-                # Considera que, no baseline, toda essa massa iria para aterro; no projeto, toda vai para compostagem.
-                massa_desvio_total = total_massa  # AGORA USA A MASSA TOTAL (ATERRO + COMPOSTAGEM)
-                evitado_total = massa_desvio_total * co2_evitado_por_t
-                receita_total = evitado_total * st.session_state.preco_carbono * st.session_state.taxa_cambio
+        # Massa que efetivamente vai para compostagem hoje
+        massa_compost_real = total_compost  # já é a massa que vai para compostagem
 
-                # --- Cenário 2: Aumento gradual (apenas sobre a parcela que ainda vai para aterro) ---
-                df_proj = []
-                massa_aterro_atual = total_aterro
-                for i in range(1, anos_cenario + 1):
-                    massa_desviada = massa_aterro_atual * (1 - (1 - taxa_crescimento_cenario) ** i)
-                    evitado_ano = massa_desviada * co2_evitado_por_t
-                    receita_ano = evitado_ano * st.session_state.preco_carbono * st.session_state.taxa_cambio
-                    df_proj.append({
-                        'Ano': datetime.now().year + i,
-                        'Massa_Desviada_Acumulada': massa_desviada,
-                        'Emissoes_Evitadas_Acumuladas': evitado_ano,
-                        'Receita_Acumulada': receita_ano
-                    })
-                df_proj = pd.DataFrame(df_proj)
+        evitado_atual = massa_compost_real * co2_evitado_por_t
+        receita_atual = evitado_atual * st.session_state.preco_carbono * st.session_state.taxa_cambio
 
-                # --- Exibir resultados ---
-                st.markdown("#### 📈 Resultados dos Cenários")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric(
+                "Massa compostada atualmente",
+                f"{formatar_br(massa_compost_real, auto_precision=False, casas_override=0)} t"
+            )
+        with col2:
+            st.metric(
+                "Emissões evitadas (atual)",
+                f"{formatar_br(evitado_atual, auto_precision=False, casas_override=2)} tCO₂e"
+            )
+        st.metric(
+            "Receita anual estimada (atual)",
+            f"R$ {formatar_br(receita_atual, auto_precision=False, casas_override=2)}"
+        )
+        st.caption(f"Percentual de compostagem sobre o total de orgânicos: {formatar_br(pct_compost_real, auto_precision=False, casas_override=2)}%")
 
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric(
-                        "Cenário 1 – Desvio Total (todos os orgânicos)",
-                        f"R$ {formatar_br(receita_total, auto_precision=False, casas_override=2)}",
-                        help="Receita total se 100% de todos os orgânicos coletados seletivamente forem compostados."
-                    )
-                    st.caption(f"Massa desviada: {formatar_br(massa_desvio_total, auto_precision=False, casas_override=0)} t")
-                    st.caption(f"Emissões evitadas: {formatar_br(evitado_total, auto_precision=False, casas_override=2)} tCO₂e")
+        # -----------------------------------------------------------------
+        # 5. Cenário 2 – Expansão para municípios sem coleta seletiva
+        # -----------------------------------------------------------------
+        st.markdown("---")
+        st.subheader("📌 Cenário 2 – Expansão da coleta seletiva para novos municípios")
 
-                with col2:
-                    receita_final = df_proj['Receita_Acumulada'].iloc[-1]
-                    st.metric(
-                        f"Cenário 2 – Aumento de {taxa_crescimento_cenario*100:.0f}% ao ano",
-                        f"R$ {formatar_br(receita_final, auto_precision=False, casas_override=2)}",
-                        help=f"Receita acumulada em {anos_cenario} anos com aumento gradual da compostagem sobre a parcela que ainda vai para aterro."
-                    )
-                    st.caption(f"Horizonte: {anos_cenario} anos")
+        st.markdown("""
+        Este cenário considera a implementação da coleta seletiva de orgânicos em municípios que atualmente não a possuem.
+        A meta de cobertura (percentual da massa que será coletada seletivamente) pode ser definida como:
+        - **Realista**: utiliza o 1º quartil (25%) dos percentuais dos municípios que já fazem coleta seletiva.
+        - **Otimista**: utiliza a média dos percentuais dos municípios que já fazem coleta seletiva.
+        """)
 
-                # Gráfico da evolução gradual
-                st.subheader("📊 Evolução da Receita Acumulada (Cenário 2)")
-                fig, ax = plt.subplots(figsize=(10, 6))
-                ax.plot(df_proj['Ano'], df_proj['Receita_Acumulada'], 'o-', color='darkgreen', linewidth=2)
-                ax.fill_between(df_proj['Ano'], 0, df_proj['Receita_Acumulada'], alpha=0.3, color='lightgreen')
-                for i, row in df_proj.iterrows():
-                    ax.annotate(
-                        f"R$ {formatar_br(row['Receita_Acumulada'], auto_precision=False, casas_override=0)}",
-                        (row['Ano'], row['Receita_Acumulada']),
-                        textcoords="offset points", xytext=(0,10), ha='center', fontsize=8
-                    )
-                ax.set_xlabel('Ano')
-                ax.set_ylabel('Receita Acumulada (R$)')
-                ax.set_title('Projeção de Receita com Aumento Gradual da Compostagem')
-                ax.grid(True, linestyle='--', alpha=0.5)
-                st.pyplot(fig)
+        # Identificar municípios sem coleta seletiva
+        df_total_geral = df_clean.groupby(COL_MUNICIPIO).agg({
+            COL_MASSA: 'sum',
+            COL_UF: 'first'
+        }).reset_index()
+        df_total_geral.rename(columns={COL_MASSA: 'Massa_Total_Geral', COL_UF: 'UF'}, inplace=True)
 
-                # Tabela detalhada do Cenário 2
-                st.subheader("📋 Detalhamento Anual (Cenário 2)")
+        municipios_com_seletiva = df_mun_cenario['MUNICIPIO'].unique()
+        df_sem_seletiva = df_total_geral[~df_total_geral[COL_MUNICIPIO].isin(municipios_com_seletiva)]
+        massa_sem_seletiva = df_sem_seletiva['Massa_Total_Geral'].sum()
+
+        if massa_sem_seletiva == 0:
+            st.info("✅ Todos os municípios já possuem coleta seletiva de orgânicos. Não há expansão possível.")
+        else:
+            # Calcular percentis dos municípios que já têm coleta
+            pct_25 = df_mun_cenario['Pct_Compostagem'].quantile(0.25)
+            pct_media = df_mun_cenario['Pct_Compostagem'].mean()
+
+            # Opção de escolha do cenário
+            tipo_cenario = st.radio(
+                "Escolha a meta de cobertura para os novos municípios:",
+                options=["Realista (1º quartil)", "Otimista (média)"],
+                index=0
+            )
+
+            if tipo_cenario == "Realista (1º quartil)":
+                meta_cobertura = pct_25
+                rotulo = f"1º quartil ({formatar_br(pct_25, auto_precision=False, casas_override=2)}%)"
+            else:
+                meta_cobertura = pct_media
+                rotulo = f"média ({formatar_br(pct_media, auto_precision=False, casas_override=2)}%)"
+
+            st.info(f"**Meta de cobertura escolhida:** {rotulo}")
+
+            # Massa adicional que será coletada seletivamente
+            massa_adicional_coletada = massa_sem_seletiva * (meta_cobertura / 100)
+
+            # Dessa massa adicional, qual percentual será efetivamente compostado?
+            # Usamos o mesmo percentual de compostagem real (pct_compost_real) sobre o que for coletado.
+            massa_adicional_compost = massa_adicional_coletada * (pct_compost_real / 100)
+
+            evitado_adicional = massa_adicional_compost * co2_evitado_por_t
+            receita_adicional = evitado_adicional * st.session_state.preco_carbono * st.session_state.taxa_cambio
+
+            # Totais após expansão
+            massa_total_compost_futuro = massa_compost_real + massa_adicional_compost
+            evitado_total = evitado_atual + evitado_adicional
+            receita_total = receita_atual + receita_adicional
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric(
+                    "Massa adicional compostada",
+                    f"{formatar_br(massa_adicional_compost, auto_precision=False, casas_override=0)} t"
+                )
+            with col2:
+                st.metric(
+                    "Emissões evitadas adicionais",
+                    f"{formatar_br(evitado_adicional, auto_precision=False, casas_override=2)} tCO₂e"
+                )
+            with col3:
+                st.metric(
+                    "Receita adicional",
+                    f"R$ {formatar_br(receita_adicional, auto_precision=False, casas_override=2)}"
+                )
+
+            st.markdown("---")
+            st.subheader("📈 Resultado consolidado após expansão")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric(
+                    "Massa total compostada (futuro)",
+                    f"{formatar_br(massa_total_compost_futuro, auto_precision=False, casas_override=0)} t"
+                )
+                st.caption(f"Acréscimo de {formatar_br((massa_adicional_compost/massa_compost_real)*100 if massa_compost_real>0 else 0, auto_precision=False, casas_override=1)}%")
+            with col2:
+                st.metric(
+                    "Receita total anual (futuro)",
+                    f"R$ {formatar_br(receita_total, auto_precision=False, casas_override=2)}"
+                )
+                st.caption(f"Acréscimo de {formatar_br((receita_adicional/receita_atual)*100 if receita_atual>0 else 0, auto_precision=False, casas_override=1)}%")
+
+            # Tabela com os municípios que seriam beneficiados (os maiores em massa)
+            with st.expander("📋 Principais municípios sem coleta seletiva (prioritários para expansão)"):
+                df_top_sem = df_sem_seletiva.nlargest(10, 'Massa_Total_Geral')[['MUNICÍPIO', 'UF', 'Massa_Total_Geral']]
                 st.dataframe(
-                    df_proj.style.format({
-                        'Massa_Desviada_Acumulada': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
-                        'Emissoes_Evitadas_Acumuladas': lambda x: formatar_br(x, auto_precision=False, casas_override=2),
-                        'Receita_Acumulada': lambda x: f"R$ {formatar_br(x, auto_precision=False, casas_override=2)}"
+                    df_top_sem.style.format({
+                        'Massa_Total_Geral': lambda x: formatar_br(x, auto_precision=False, casas_override=0)
                     }),
                     use_container_width=True
                 )
+                st.caption(f"Total de {len(df_sem_seletiva)} municípios sem coleta seletiva, representando {formatar_br(massa_sem_seletiva, auto_precision=False, casas_override=0)} t de resíduos.")
 
-                st.info("""
-                💡 **Interpretação:**  
-                - O **Cenário 1** mostra o potencial máximo se **todos os orgânicos coletados seletivamente** (incluindo os que já vão para compostagem) forem tratados por compostagem – ou seja, se o cenário baseline fosse que tudo fosse para aterro.  
-                - O **Cenário 2** é mais realista, considerando um aumento gradual ano a ano na taxa de desvio apenas sobre a parcela que ainda vai para aterro.  
-                - Ambos os cenários consideram apenas os municípios que já possuem coleta seletiva de orgânicos.
-                """)
+            st.info("""
+            💡 **Interpretação:**  
+            - O **Cenário 1** mostra a situação atual, com o percentual real de compostagem sobre os orgânicos coletados seletivamente.  
+            - O **Cenário 2** projeta o ganho ao implementar coleta seletiva em novos municípios, usando uma meta realista ou otimista de cobertura.  
+            - A taxa de compostagem aplicada sobre a nova coleta é a mesma observada atualmente (percentual real).
+            """)
 
     # =========================================================
-    # SEÇÃO 4: ANÁLISE DE COBERTURA DA COLETA SELETIVA DE ORGÂNICOS (COM DUAS TABELAS)
+    # SEÇÃO 4: ANÁLISE DE COBERTURA DA COLETA SELETIVA DE ORGÂNICOS (MANTIDA)
     # =========================================================
     st.markdown("---")
     st.subheader("📊 Análise de Cobertura da Coleta Seletiva de Orgânicos")
@@ -1483,7 +1545,7 @@ with tab_ia:
     # Agrupa por município para calcular massa total e obter UF
     df_total = df_clean.groupby(COL_MUNICIPIO).agg({
         COL_MASSA: 'sum',
-        COL_UF: 'first'  # pega a UF (todos os registros do mesmo município têm a mesma UF)
+        COL_UF: 'first'
     }).reset_index()
     df_total.rename(columns={
         COL_MASSA: 'Massa_Total',
@@ -1657,9 +1719,7 @@ with tab_ia:
         st.metric("Receita total", f"R$ {formatar_br(receita_total_otimista, auto_precision=False, casas_override=2)}")
         st.caption(f"Meta: {pct_media:.2f}% (média)")
 
-    # =========================================================
-    # TABELAS ADICIONAIS: menores percentuais positivos e municípios com 0%
-    # =========================================================
+    # Tabelas adicionais
     with st.expander("📋 Municípios com menores percentuais de cobertura (referência para os cenários)"):
         st.markdown("#### 📊 Menores percentuais **positivos** (> 0%)")
         if not df_com_seletiva.empty:
@@ -1678,7 +1738,6 @@ with tab_ia:
         st.markdown("---")
         st.markdown("#### 🚫 Municípios com **0% de cobertura** (sem coleta seletiva de orgânicos)")
         if not df_sem_seletiva.empty:
-            # Mostrar os 10 maiores em massa total (para destacar onde a expansão teria maior impacto)
             df_zero = df_sem_seletiva.nlargest(10, 'Massa_Total')[['MUNICÍPIO', 'UF', 'Massa_Total']]
             st.dataframe(
                 df_zero.style.format({
