@@ -1174,7 +1174,7 @@ with tab_ia:
                             st.success(f"💰 **Potencial total em {anos_sim} anos para {titulo_sim}: R$ {valor_final:,.2f}**")
                             
                             # =========================================================
-                            # 📊 DETALHAMENTO DOS CÁLCULOS (com formatação LaTeX)
+                            # 📊 DETALHAMENTO DOS CÁLCULOS (com formatação Brasileira)
                             # =========================================================
                             with st.expander("📊 Ver detalhamento dos cálculos (baseline e compostagem)"):
                                 st.markdown("""
@@ -1186,27 +1186,38 @@ with tab_ia:
                                 
                                 st.markdown(f"""
                                 **📌 Dados de entrada:**
-                                - Massa de orgânicos que vai para aterro atualmente: **{massa_aterro_atual:,.0f} t/ano**
-                                - Coeficiente de emissões do aterro por tonelada: **{co2_aterro / massa_aterro_atual if massa_aterro_atual > 0 else 0:.2f} tCO₂e/t**
-                                - Coeficiente de emissões da compostagem por tonelada: **{co2_compostagem / massa_aterro_atual if massa_aterro_atual > 0 else 0:.2f} tCO₂e/t**
-                                - Emissões evitadas por tonelada desviada: **{co2_evitado_por_t:.2f} tCO₂e/t**
+                                - Massa de orgânicos que vai para aterro atualmente: **{formatar_br(massa_aterro_atual, auto_precision=False, casas_override=0)} t/ano**
+                                - Coeficiente de emissões do aterro por tonelada: **{formatar_br(co2_aterro / massa_aterro_atual if massa_aterro_atual > 0 else 0, auto_precision=False, casas_override=2)} tCO₂e/t**
+                                - Coeficiente de emissões da compostagem por tonelada: **{formatar_br(co2_compostagem / massa_aterro_atual if massa_aterro_atual > 0 else 0, auto_precision=False, casas_override=2)} tCO₂e/t**
+                                - Emissões evitadas por tonelada desviada: **{formatar_br(co2_evitado_por_t, auto_precision=False, casas_override=2)} tCO₂e/t**
                                 """)
                                 
                                 # Exemplo de cálculo para o primeiro ano
                                 st.markdown("**🧮 Exemplo de cálculo para o Ano 1:**")
                                 ano1 = df_sim.iloc[0]
+                                
+                                # Formatando os números para exibição no texto
+                                massa_desviada_fmt = formatar_br(ano1['Massa_Desviada_Acumulada(t)'], auto_precision=False, casas_override=0)
+                                co2_evitado_ano_fmt = formatar_br(ano1['Massa_Desviada_Acumulada(t)'] * co2_evitado_por_t, auto_precision=False, casas_override=0)
+                                preco_carbono_fmt = formatar_br(st.session_state.preco_carbono, auto_precision=False, casas_override=2)
+                                cambio_fmt = formatar_br(st.session_state.taxa_cambio, auto_precision=False, casas_override=2)
+                                receita_anual_fmt = formatar_br(ano1['Receita_Anual_BRL'], auto_precision=False, casas_override=2)
+                                
                                 st.markdown(f"""
-                                - Massa desviada no ano 1: **{ano1['Massa_Desviada_Acumulada(t)']:,.0f} t** (aumento de {taxa_crescimento*100:.0f}% em relação ao ano atual)
-                                - Emissões evitadas no ano 1: **{ano1['Massa_Desviada_Acumulada(t)'] * co2_evitado_por_t:,.0f} tCO₂e**
-                                - Preço do carbono no ano 1: € {st.session_state.preco_carbono:.2f} (inflação de {inflacao_carbono*100:.0f}% ao ano)
-                                - Câmbio EUR/BRL: R$ {st.session_state.taxa_cambio:.2f}
+                                - Massa desviada no ano 1: **{massa_desviada_fmt} t** (aumento de {taxa_crescimento*100:.0f}% em relação ao ano atual)
+                                - Emissões evitadas no ano 1: **{co2_evitado_ano_fmt} tCO₂e**
+                                - Preço do carbono no ano 1: € {preco_carbono_fmt} (inflação de {inflacao_carbono*100:.0f}% ao ano)
+                                - Câmbio EUR/BRL: R$ {cambio_fmt}
                                 """)
                                 
-                                # Fórmula em LaTeX para visualização profissional
+                                # Fórmula em LaTeX com números formatados no padrão brasileiro
                                 st.latex(rf"""
                                 \text{{Receita anual}} = 
-                                {ano1['Massa_Desviada_Acumulada(t)']:,.0f} \times {co2_evitado_por_t:.2f} \times {st.session_state.preco_carbono:.2f} \times {st.session_state.taxa_cambio:.2f}
-                                = R\$ {ano1['Receita_Anual_BRL']:,.2f}
+                                {massa_desviada_fmt} \times 
+                                {formatar_br(co2_evitado_por_t, auto_precision=False, casas_override=2)} \times 
+                                {preco_carbono_fmt} \times 
+                                {cambio_fmt}
+                                = R\$ {receita_anual_fmt}
                                 """)
                                 
                                 # Tabela completa com emissões evitadas anuais
@@ -1214,10 +1225,10 @@ with tab_ia:
                                 df_sim_detalhe['Emissoes_Evitadas_Anual(tCO2e)'] = df_sim_detalhe['Massa_Desviada_Acumulada(t)'] * co2_evitado_por_t
                                 st.markdown("**📊 Tabela completa com emissões evitadas:**")
                                 st.dataframe(df_sim_detalhe.style.format({
-                                    'Massa_Desviada_Acumulada(t)': '{:,.0f}',
-                                    'Emissoes_Evitadas_Anual(tCO2e)': '{:,.0f}',
-                                    'Receita_Anual_BRL': 'R$ {:,.2f}',
-                                    'Receita_Acumulada_BRL': 'R$ {:,.2f}'
+                                    'Massa_Desviada_Acumulada(t)': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                                    'Emissoes_Evitadas_Anual(tCO2e)': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                                    'Receita_Anual_BRL': lambda x: f"R$ {formatar_br(x, auto_precision=False, casas_override=2)}",
+                                    'Receita_Acumulada_BRL': lambda x: f"R$ {formatar_br(x, auto_precision=False, casas_override=2)}"
                                 }))
                                 
                                 st.info("""
