@@ -920,7 +920,7 @@ with tab_ia:
     """)
     
     # =========================================================
-    # CLASSIFICAÇÃO DE DESTINOS (PLN) - TEXTO CORRIGIDO
+    # CLASSIFICAÇÃO DE DESTINOS (PLN)
     # =========================================================
     st.subheader("📋 Classificação Inteligente de Destinos (PLN)")
     
@@ -1657,14 +1657,14 @@ with tab_ia:
         st.metric("Massa adicional", f"{formatar_br(massa_adicional_realista, auto_precision=False, casas_override=0)} t")
         st.metric("Emissões evitadas totais", f"{formatar_br(evitado_total_realista, auto_precision=False, casas_override=2)} tCO₂e")
         st.metric("Receita total", f"R$ {formatar_br(receita_total_realista, auto_precision=False, casas_override=2)}")
-        st.caption(f"Meta: {pct_25:.2f}% (1º quartil)")
+        st.caption(f"Meta de cobertura: {formatar_br(pct_25, auto_precision=False, casas_override=2)}% (1º quartil)")
     with col3:
         st.markdown("#### 📈 Cenário Otimista (Média)")
         st.metric("Massa compostada", f"{formatar_br(massa_compostada_otimista, auto_precision=False, casas_override=0)} t")
         st.metric("Massa adicional", f"{formatar_br(massa_adicional_otimista, auto_precision=False, casas_override=0)} t")
         st.metric("Emissões evitadas totais", f"{formatar_br(evitado_total_otimista, auto_precision=False, casas_override=2)} tCO₂e")
         st.metric("Receita total", f"R$ {formatar_br(receita_total_otimista, auto_precision=False, casas_override=2)}")
-        st.caption(f"Meta: {pct_media:.2f}% (média)")
+        st.caption(f"Meta de cobertura: {formatar_br(pct_media, auto_precision=False, casas_override=2)}% (média)")
 
     # Tabelas adicionais
     with st.expander("📋 Municípios com menores percentuais de cobertura (referência para os cenários)"):
@@ -1678,7 +1678,7 @@ with tab_ia:
                 }),
                 use_container_width=True
             )
-            st.caption(f"📌 O cenário realista usa o 1º quartil ({pct_25:.2f}%) como meta, baseado nos 25% menores percentuais entre os que já possuem coleta seletiva.")
+            st.caption(f"📌 O cenário realista usa o 1º quartil ({formatar_br(pct_25, auto_precision=False, casas_override=2)}%) como meta, baseado nos 25% menores percentuais entre os que já possuem coleta seletiva.")
         else:
             st.info("Nenhum município com coleta seletiva para referência.")
 
@@ -1707,7 +1707,7 @@ with tab_ia:
     """)
 
 # =========================================================
-# AUTORIA E USO (TEXTO CORRIGIDO)
+# AUTORIA E USO
 # =========================================================
 st.markdown("---")
 st.subheader("📬 Autoria e uso")
