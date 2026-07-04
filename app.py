@@ -883,8 +883,8 @@ with tab_ia:
     st.markdown("""
     Aqui você pode explorar análises avançadas utilizando técnicas de Inteligência Artificial:
     - **Classificação de destinos** com Processamento de Linguagem Natural (PLN)
-    - **Projeção de geração de resíduos per capita** com base no crescimento populacional
-    - **Simulação de cenários de compostagem** e potencial de ganhos com créditos de carbono
+    - **Projeção de geração de resíduos per capita** com base no crescimento populacional (município ou Brasil)
+    - **Simulação de cenários de compostagem** e potencial de ganhos com créditos de carbono (município ou Brasil)
     """)
     
     # =========================================================
@@ -1016,34 +1016,47 @@ with tab_ia:
                 st.info("ℹ️ Verifique se o arquivo `utils/ia_clustering.py` está atualizado.")
     
     # =========================================================
-    # SEÇÃO 1: PREVISÃO DE GERAÇÃO PER CAPITA
+    # SEÇÃO 1: PREVISÃO DE GERAÇÃO PER CAPITA (COM OPÇÃO BRASIL)
     # =========================================================
     st.markdown("---")
     st.subheader("📈 Previsão de Geração de Resíduos por Habitante")
     
     st.markdown("""
-    Projeta a quantidade de resíduos que o município precisará gerenciar com base no crescimento populacional.
-    A geração per capita é mantida constante a partir dos dados atuais do SNIS.
+    Projeta a quantidade de resíduos que o município (ou o Brasil inteiro) precisará gerenciar 
+    com base no crescimento populacional. A geração per capita é mantida constante a partir dos dados atuais do SNIS.
     """)
     
+    # Lista de opções: BRASIL + todos os municípios
+    opcoes_proj = ["BRASIL – Todos os municípios"] + sorted(df_clean[COL_MUNICIPIO].unique())
     municipio_proj = st.selectbox(
-        "Selecione o município para projeção:",
-        sorted(df_clean[COL_MUNICIPIO].unique()),
+        "Selecione o município (ou Brasil) para projeção:",
+        opcoes_proj,
         key="proj_municipio"
     )
     
     if municipio_proj:
-        df_mun_proj = df_clean[df_clean[COL_MUNICIPIO] == municipio_proj]
-        massa_atual = df_mun_proj['MASSA_COLETADA'].sum()
-        
-        if massa_atual <= 0:
-            st.warning("Este município não tem dados de massa coletada.")
+        if municipio_proj == "BRASIL – Todos os municípios":
+            # Agrega dados de todo o Brasil
+            df_mun_proj = df_clean.copy()
+            massa_atual = df_mun_proj['MASSA_COLETADA'].sum()
+            # Para a população, vamos pedir ao usuário ou usar uma estimativa
+            pop_atual = st.number_input(
+                "População total do Brasil (habitantes) – IBGE 2024:", 
+                min_value=1000, value=210000000, step=1000000
+            )
+            titulo_proj = "Brasil"
         else:
+            df_mun_proj = df_clean[df_clean[COL_MUNICIPIO] == municipio_proj]
+            massa_atual = df_mun_proj['MASSA_COLETADA'].sum()
             pop_atual = st.number_input(
                 f"População atual do município (habitantes) – {municipio_proj}:", 
                 min_value=100, value=50000, step=1000
             )
-            
+            titulo_proj = municipio_proj
+        
+        if massa_atual <= 0:
+            st.warning("Não há dados de massa coletada para a seleção.")
+        else:
             col1, col2 = st.columns(2)
             with col1:
                 taxa_pop = st.slider("Taxa de crescimento populacional anual (%)", 0.0, 5.0, 1.0, 0.1) / 100
@@ -1063,35 +1076,45 @@ with tab_ia:
                         }))
                         
                         ultimo = df_proj.iloc[-1]
-                        st.success(f"📌 **Em {ultimo['Ano']:.0f}, o município precisará gerenciar aproximadamente {ultimo['Massa_Projetada_ton']:,.0f} toneladas de resíduos.**")
+                        if titulo_proj == "Brasil":
+                            st.success(f"📌 **Em {ultimo['Ano']:.0f}, o Brasil precisará gerenciar aproximadamente {ultimo['Massa_Projetada_ton']:,.0f} toneladas de resíduos.**")
+                        else:
+                            st.success(f"📌 **Em {ultimo['Ano']:.0f}, o município {titulo_proj} precisará gerenciar aproximadamente {ultimo['Massa_Projetada_ton']:,.0f} toneladas de resíduos.**")
                     except Exception as e:
                         st.error(f"Erro na projeção: {e}")
     
     # =========================================================
-    # SEÇÃO 2: SIMULAÇÃO DE CENÁRIOS DE COMPOSTAGEM
+    # SEÇÃO 2: SIMULAÇÃO DE CENÁRIOS DE COMPOSTAGEM (COM OPÇÃO BRASIL)
     # =========================================================
     st.markdown("---")
-    st.subheader("💰 Simulador: Quanto o município pode ganhar com créditos de carbono?")
+    st.subheader("💰 Simulador: Quanto o município (ou o Brasil) pode ganhar com créditos de carbono?")
     
     st.markdown("""
     Simule o impacto financeiro de **aumentar gradualmente** a quantidade de orgânicos desviada do aterro para a compostagem.
     """)
     
+    opcoes_sim = ["BRASIL – Todos os municípios"] + sorted(df_clean[COL_MUNICIPIO].unique())
     municipio_sim = st.selectbox(
-        "Selecione um município para a simulação:",
-        sorted(df_clean[COL_MUNICIPIO].unique()),
+        "Selecione o município (ou Brasil) para a simulação:",
+        opcoes_sim,
         key="sim_municipio"
     )
     
     if municipio_sim:
-        df_mun_sim = df_clean[df_clean[COL_MUNICIPIO] == municipio_sim]
+        if municipio_sim == "BRASIL – Todos os municípios":
+            df_mun_sim = df_clean.copy()
+            titulo_sim = "Brasil"
+        else:
+            df_mun_sim = df_clean[df_clean[COL_MUNICIPIO] == municipio_sim]
+            titulo_sim = municipio_sim
         
+        # Calcula a massa orgânica que atualmente vai para ATERRO (MCF > 0)
         df_mun_sim['MCF'] = df_mun_sim[COL_DESTINO].apply(determinar_mcf_por_destino)
         df_org_aterro = df_mun_sim[df_mun_sim['MCF'] > 0]
         massa_aterro_atual = df_org_aterro['MASSA_COLETADA'].sum()
         
         if massa_aterro_atual <= 0:
-            st.warning("Este município não envia resíduos orgânicos para aterro (já utiliza compostagem ou reciclagem total).")
+            st.warning("Esta seleção não envia resíduos orgânicos para aterro (já utiliza compostagem ou reciclagem total).")
         else:
             col1, col2 = st.columns(2)
             with col1:
@@ -1133,7 +1156,7 @@ with tab_ia:
                             }))
                             
                             valor_final = df_sim['Receita_Acumulada_BRL'].iloc[-1]
-                            st.success(f"💰 **Potencial total em {anos_sim} anos: R$ {valor_final:,.2f}**")
+                            st.success(f"💰 **Potencial total em {anos_sim} anos para {titulo_sim}: R$ {valor_final:,.2f}**")
                             st.info("ℹ️ Esta simulação considera o aumento gradual da compostagem ano a ano, com base nos dados atuais do SNIS. O valor é acumulado.")
                     except Exception as e:
                         st.error(f"Erro na simulação: {e}")
