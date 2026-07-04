@@ -11,60 +11,66 @@ def preparar_dados_clusterizacao(df_municipios):
     Prepara os dados dos municípios para clusterização.
     Detecta automaticamente as colunas de UF e destino.
     """
+    df = df_municipios.copy()
+    
     # --- DETECÇÃO DA COLUNA UF ---
     col_uf = None
-    for col in df_municipios.columns:
+    for col in df.columns:
         if 'uf' in col.lower():
             col_uf = col
             break
     if col_uf is None:
-        df_municipios = df_municipios.copy()
-        df_municipios['UF'] = 'BR'
+        df['UF'] = 'BR'
         col_uf = 'UF'
 
     # --- DETECÇÃO DA COLUNA DESTINO ---
     col_destino = None
-    for col in df_municipios.columns:
+    for col in df.columns:
         if any(palavra in col.lower() for palavra in ['destino', 'unidade', 'tipo']):
             col_destino = col
             break
     if col_destino is None:
-        col_destino = 'DESTINO' if 'DESTINO' in df_municipios.columns else df_municipios.columns[-1]
+        # Se não encontrar, usa a última coluna que parece ter texto (fallback)
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                col_destino = col
+                break
+        if col_destino is None:
+            col_destino = df.columns[-1]
 
-    # --- FUNÇÃO DE AGREGAÇÃO ROBUSTA PARA DESTINO ---
+    # --- AGRUPAMENTO POR MUNICÍPIO E UF ---
+    # Grupo para calcular soma da massa e contagem de rotas
+    grupo = df.groupby(['MUNICÍPIO', col_uf])
+    
+    # Soma da massa
+    massa_total = grupo['MASSA_COLETADA'].sum().reset_index()
+    massa_total.rename(columns={'MASSA_COLETADA': 'Massa_Total'}, inplace=True)
+    
+    # Contagem de rotas (número de linhas por município)
+    num_rotas = grupo.size().reset_index(name='Num_Rotas')
+    
+    # Concatenação de destinos (tratamento robusto)
     def concat_destinos(series):
+        # Converte para string, remove NaN, espaços vazios e junta
         strings = series.dropna().astype(str).str.strip()
         strings = strings[strings != '']
         return ','.join(strings.unique()) if not strings.empty else ''
-
-    # --- AGRUPAMENTO POR MUNICÍPIO E UF (com as_index=False para evitar índices) ---
-    agg = df_municipios.groupby(['MUNICÍPIO', col_uf], as_index=False).agg({
-        'MASSA_COLETADA': 'sum',
-        'TIPO_COLETA_EXECUTADA': 'count',  # número de rotas
-        col_destino: concat_destinos       # destinos concatenados
-    })
     
-    # Renomeia colunas (garantindo que o número de colunas seja compatível)
-    # O agg terá 4 colunas: ['MUNICÍPIO', col_uf, 'MASSA_COLETADA', 'TIPO_COLETA_EXECUTADA', col_destino]? 
-    # Na verdade, o agg terá 5 colunas: MUNICÍPIO, col_uf, MASSA_COLETADA (sum), TIPO_COLETA_EXECUTADA (count), col_destino (concat)
-    # Então são 5 colunas, mas vamos verificar.
-    # Vamos renomear dinamicamente:
-    new_cols = ['MUNICÍPIO', 'UF', 'Massa_Total', 'Num_Rotas', 'Destinos']
-    # Mas o nome da coluna UF pode ser diferente (col_uf), então renomeamos depois.
-    agg.rename(columns={col_uf: 'UF'}, inplace=True)
-    # Agora renomeamos as outras colunas
-    agg.rename(columns={
-        'MASSA_COLETADA': 'Massa_Total',
-        'TIPO_COLETA_EXECUTADA': 'Num_Rotas',
-        col_destino: 'Destinos'
-    }, inplace=True)
+    destinos = grupo[col_destino].apply(concat_destinos).reset_index(name='Destinos')
     
-    # O DataFrame agora tem colunas: ['MUNICÍPIO', 'UF', 'Massa_Total', 'Num_Rotas', 'Destinos']
+    # --- JUNÇÃO DOS DATAFRAMES ---
+    # Merge passo a passo
+    df_cluster = massa_total.merge(num_rotas, on=['MUNICÍPIO', col_uf])
+    df_cluster = df_cluster.merge(destinos, on=['MUNICÍPIO', col_uf])
     
-    # --- CÁLCULO DE INDICADORES ---
-    def calc_indicadores(grupo):
-        destinos_series = grupo[col_destino].dropna().astype(str).str.lower()
-        total = len(grupo)
+    # Renomeia a coluna UF para padronizar
+    df_cluster.rename(columns={col_uf: 'UF'}, inplace=True)
+    
+    # --- CÁLCULO DE INDICADORES (percentuais de destino) ---
+    # Função para calcular percentuais para cada município
+    def calc_indicadores(grupo_municipio):
+        destinos_series = grupo_municipio[col_destino].dropna().astype(str).str.lower()
+        total = len(grupo_municipio)
         if total == 0:
             return pd.Series({'Pct_Aterro': 0, 'Pct_Compostagem': 0})
         pct_aterro = destinos_series.str.contains('aterro').sum() / total * 100
@@ -74,15 +80,13 @@ def preparar_dados_clusterizacao(df_municipios):
             'Pct_Compostagem': pct_compostagem
         })
     
-    # Aplica os indicadores por município (usando as_index=False)
-    indicadores = df_municipios.groupby(['MUNICÍPIO', col_uf], as_index=False).apply(calc_indicadores).reset_index(drop=True)
-    # O resultado terá colunas: ['MUNICÍPIO', col_uf, 'Pct_Aterro', 'Pct_Compostagem']
+    indicadores = df.groupby(['MUNICÍPIO', col_uf]).apply(calc_indicadores).reset_index()
     indicadores.rename(columns={col_uf: 'UF'}, inplace=True)
     
-    # Junta com os dados agregados
-    df_cluster = agg.merge(indicadores, on=['MUNICÍPIO', 'UF'])
+    # Junta os indicadores ao df_cluster
+    df_cluster = df_cluster.merge(indicadores, on=['MUNICÍPIO', 'UF'])
     
-    # Seleciona as features para clusterização
+    # --- SELEÇÃO DAS FEATURES PARA CLUSTERIZAÇÃO ---
     features = ['Massa_Total', 'Num_Rotas', 'Pct_Aterro', 'Pct_Compostagem']
     X = df_cluster[features].copy()
     
@@ -93,6 +97,7 @@ def preparar_dados_clusterizacao(df_municipios):
     return X, df_cluster
 
 def clusterizar_municipios(X, n_clusters=4, random_state=42):
+    """Aplica K-Means clusterização nos dados dos municípios."""
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
     kmeans = KMeans(n_clusters=n_clusters, random_state=random_state, n_init=10)
@@ -100,12 +105,15 @@ def clusterizar_municipios(X, n_clusters=4, random_state=42):
     return labels, kmeans, scaler
 
 def aplicar_pca(X, n_components=2, random_state=42):
+    """Aplica PCA para redução de dimensionalidade (visualização 2D)."""
     pca = PCA(n_components=n_components, random_state=random_state)
     X_pca = pca.fit_transform(X)
     return X_pca, pca
 
 def plot_clusters(X_pca, labels, df_cluster):
+    """Gera gráfico de dispersão dos clusters."""
     fig, ax = plt.subplots(figsize=(10, 8))
+    
     df_plot = pd.DataFrame({
         'PC1': X_pca[:, 0],
         'PC2': X_pca[:, 1],
@@ -113,6 +121,7 @@ def plot_clusters(X_pca, labels, df_cluster):
         'Município': df_cluster['MUNICÍPIO'],
         'UF': df_cluster['UF']
     })
+    
     scatter = ax.scatter(
         df_plot['PC1'], 
         df_plot['PC2'],
@@ -121,6 +130,8 @@ def plot_clusters(X_pca, labels, df_cluster):
         alpha=0.7,
         s=50
     )
+    
+    # Anota os 10 maiores municípios
     top_n = df_cluster.nlargest(10, 'Massa_Total')
     for _, row in top_n.iterrows():
         idx = df_cluster[df_cluster['MUNICÍPIO'] == row['MUNICÍPIO']].index[0]
@@ -130,6 +141,7 @@ def plot_clusters(X_pca, labels, df_cluster):
             fontsize=8,
             alpha=0.7
         )
+    
     ax.set_xlabel('Componente Principal 1')
     ax.set_ylabel('Componente Principal 2')
     ax.set_title('Clusterização de Municípios por Perfil de Resíduos')
@@ -138,6 +150,7 @@ def plot_clusters(X_pca, labels, df_cluster):
     return fig
 
 def resumo_clusters(df_cluster, labels):
+    """Retorna um resumo estatístico por cluster."""
     df_cluster['Cluster'] = labels
     resumo = df_cluster.groupby('Cluster').agg({
         'MUNICÍPIO': 'count',
@@ -146,6 +159,7 @@ def resumo_clusters(df_cluster, labels):
         'Pct_Aterro': 'mean',
         'Pct_Compostagem': 'mean'
     }).round(2)
+    
     resumo.columns = ['Quantidade', 'Massa_Media', 'Massa_Mediana', 'Massa_Total_Cluster', 
                       'Rotas_Media', 'Pct_Aterro_Media', 'Pct_Compostagem_Media']
     return resumo
