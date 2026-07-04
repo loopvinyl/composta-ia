@@ -10,6 +10,7 @@ def preparar_dados_clusterizacao(df_municipios):
     """
     Prepara os dados dos municípios para clusterização.
     Detecta automaticamente as colunas de UF e destino.
+    Retorna X (features) e df_cluster com as mesmas linhas (filtrados por Massa_Total > 0).
     """
     df = df_municipios.copy()
     
@@ -80,8 +81,10 @@ def preparar_dados_clusterizacao(df_municipios):
     features = ['Massa_Total', 'Num_Rotas', 'Pct_Aterro', 'Pct_Compostagem']
     X = df_cluster[features].copy()
     
-    X = X.fillna(0)
-    X = X[X['Massa_Total'] > 0]
+    # --- FILTRO: REMOVE MUNICÍPIOS SEM MASSA (Massa_Total = 0) ---
+    mask = X['Massa_Total'] > 0
+    X = X.loc[mask].copy()
+    df_cluster = df_cluster.loc[mask].copy()  # <-- CORREÇÃO AQUI: aplica o mesmo filtro
     
     return X, df_cluster
 
@@ -138,9 +141,13 @@ def plot_clusters(X_pca, labels, df_cluster):
     return fig
 
 def resumo_clusters(df_cluster, labels):
-    """Retorna um resumo estatístico por cluster."""
-    df_cluster['Cluster'] = labels
-    resumo = df_cluster.groupby('Cluster').agg({
+    """
+    Retorna um resumo estatístico por cluster.
+    Espera que df_cluster tenha as colunas necessárias e que labels seja um array.
+    """
+    df = df_cluster.copy()
+    df['Cluster'] = labels
+    resumo = df.groupby('Cluster').agg({
         'MUNICÍPIO': 'count',
         'Massa_Total': ['mean', 'median', 'sum'],
         'Num_Rotas': 'mean',
@@ -155,12 +162,14 @@ def resumo_clusters(df_cluster, labels):
 def descrever_clusters(df_cluster, labels):
     """
     Gera uma descrição textual para cada cluster com base nas médias das variáveis.
+    Espera que df_cluster tenha as colunas necessárias e que labels seja um array.
     """
-    df_cluster['Cluster'] = labels
+    df = df_cluster.copy()
+    df['Cluster'] = labels
     descricoes = {}
     
-    for cluster in sorted(df_cluster['Cluster'].unique()):
-        subset = df_cluster[df_cluster['Cluster'] == cluster]
+    for cluster in sorted(df['Cluster'].unique()):
+        subset = df[df['Cluster'] == cluster]
         media_massa = subset['Massa_Total'].mean()
         media_rotas = subset['Num_Rotas'].mean()
         media_aterro = subset['Pct_Aterro'].mean()
