@@ -1296,7 +1296,7 @@ with tab_ia:
         st.caption(f"Percentual de compostagem sobre o total de orgânicos: {formatar_br(pct_compost_real, auto_precision=False, casas_override=2)}%")
 
         # -----------------------------------------------------------------
-        # 5. Cenário 2 – Expansão da coleta seletiva para novos municípios (COM TEXTO REFINADO)
+        # 5. Cenário 2 – Expansão da coleta seletiva para novos municípios
         # -----------------------------------------------------------------
         st.markdown("---")
         st.subheader("📌 Cenário 2 – Expansão da coleta seletiva para novos municípios")
