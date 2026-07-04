@@ -497,7 +497,7 @@ with tab_tradicional:
 
     st.markdown(f"### Total de resíduos coletados: **{formatar_br(massa_total_geral, auto_precision=False, casas_override=0)} t**")
 
-    # --- Gráfico de pizza dos principais destinos (usando a classificação da IA) ---
+    # --- Gráfico de pizza com legenda (sem rótulos sobrepostos) ---
     st.markdown("#### 📊 Distribuição dos principais destinos")
     df_mun_dest['destino_agrupado'] = df_mun_dest[COL_DESTINO].apply(
         lambda x: classificador_ia.prever(x, threshold=0.3) if pd.notna(x) else "Indefinido"
@@ -509,18 +509,19 @@ with tab_tradicional:
     cores = plt.cm.Set3(np.linspace(0, 1, len(agg_grafico)))
     wedges, texts, autotexts = ax_dest.pie(
         agg_grafico['MASSA_FLOAT'],
-        labels=agg_grafico['destino_agrupado'],
+        labels=None,  # Remove rótulos sobre a pizza
         autopct=lambda p: f'{p:.1f}%' if p > 1 else '',
         startangle=90,
         colors=cores,
-        textprops={'fontsize': 10},
-        pctdistance=0.85,
-        labeldistance=1.05
+        textprops={'fontsize': 9},
+        pctdistance=0.7,
     )
-    for text in texts:
-        text.set_fontsize(9)
-    for autotext in autotexts:
-        autotext.set_fontsize(9)
+    # Adiciona legenda com os nomes das categorias
+    ax_dest.legend(wedges, agg_grafico['destino_agrupado'],
+                   title="Destino",
+                   loc="center left",
+                   bbox_to_anchor=(1, 0, 0.5, 1),
+                   fontsize=9)
     ax_dest.axis('equal')
     plt.tight_layout()
     st.pyplot(fig_dest)
@@ -750,6 +751,7 @@ with tab_tradicional:
 
         st.markdown(f"### Total de orgânicos coletados seletivamente: **{formatar_br(total_organicos, auto_precision=False, casas_override=2)} t**")
 
+        # Gráfico de composição da destinação dos orgânicos (com legenda)
         st.markdown("#### 📊 Composição da destinação dos orgânicos")
         agg_org_pie = df_organicos.groupby(COL_DESTINO)["MASSA_FLOAT"].sum().reset_index()
         agg_org_pie = agg_org_pie.sort_values("MASSA_FLOAT", ascending=False)
@@ -757,23 +759,24 @@ with tab_tradicional:
         cores_pie = plt.cm.Set3(np.linspace(0, 1, len(agg_org_pie)))
         wedges, texts, autotexts = ax_pie.pie(
             agg_org_pie["MASSA_FLOAT"],
-            labels=agg_org_pie[COL_DESTINO],
+            labels=None,
             autopct=lambda p: f'{p:.1f}%' if p > 1 else '',
             startangle=90,
             colors=cores_pie,
             textprops={'fontsize': 9},
-            pctdistance=0.85,
-            labeldistance=1.05
+            pctdistance=0.7,
         )
-        for text in texts:
-            text.set_fontsize(9)
-        for autotext in autotexts:
-            autotext.set_fontsize(9)
+        ax_pie.legend(wedges, agg_org_pie[COL_DESTINO],
+                      title="Destino",
+                      loc="center left",
+                      bbox_to_anchor=(1, 0, 0.5, 1),
+                      fontsize=9)
         ax_pie.axis('equal')
         plt.tight_layout()
         st.pyplot(fig_pie)
         plt.close(fig_pie)
 
+        # Tabela resumo
         st.markdown("#### 📋 Tabela – Destino da coleta de recicláveis orgânicos")
         agg_org = df_organicos.groupby(COL_DESTINO)["MASSA_FLOAT"].sum().reset_index()
         agg_org = agg_org.sort_values("MASSA_FLOAT", ascending=False)
@@ -1454,7 +1457,7 @@ with tab_ia:
                 """)
 
     # =========================================================
-    # SEÇÃO 4: ANÁLISE DE COBERTURA DA COLETA SELETIVA DE ORGÂNICOS (CORRIGIDA)
+    # SEÇÃO 4: ANÁLISE DE COBERTURA DA COLETA SELETIVA DE ORGÂNICOS
     # =========================================================
     st.markdown("---")
     st.subheader("📊 Análise de Cobertura da Coleta Seletiva de Orgânicos")
@@ -1478,14 +1481,8 @@ with tab_ia:
     df_seletiva = df_clean[mask_organicos].groupby(COL_MUNICIPIO).agg({COL_MASSA: 'sum'}).reset_index()
     df_seletiva.rename(columns={COL_MASSA: 'Massa_Seletiva_Organicos'}, inplace=True)
 
-    # ---- OBTÉM A UF DE CADA MUNICÍPIO (CORREÇÃO) ----
-    df_uf = df_clean[[COL_MUNICIPIO, COL_UF]].drop_duplicates(subset=[COL_MUNICIPIO])
-    df_uf.rename(columns={COL_UF: 'UF'}, inplace=True)
-
     # Junta os dados
     df_cobertura = pd.merge(df_total, df_seletiva, on=COL_MUNICIPIO, how='left').fillna(0)
-    df_cobertura = pd.merge(df_cobertura, df_uf, on=COL_MUNICIPIO, how='left')   # <--- ADICIONA A UF
-
     df_cobertura['Pct_Seletiva'] = (df_cobertura['Massa_Seletiva_Organicos'] / df_cobertura['Massa_Total']) * 100
     df_cobertura['Pct_Seletiva'] = df_cobertura['Pct_Seletiva'].round(2)
     df_cobertura['Possui_Seletiva'] = df_cobertura['Massa_Seletiva_Organicos'] > 0
@@ -1517,7 +1514,7 @@ with tab_ia:
     col3.metric("Média municipal (não ponderada)", f"{formatar_br(media_pct_municipios, auto_precision=False, casas_override=2)}%")
 
     # =========================================================
-    # 🏆 TOP 10 MUNICÍPIOS (CORRIGIDO – AGORA COM 'UF')
+    # 🏆 TOP 10 MUNICÍPIOS (ADICIONADO)
     # =========================================================
     st.markdown("### 🏆 Destaques da Coleta Seletiva de Orgânicos")
 
