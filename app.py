@@ -1716,14 +1716,6 @@ st.markdown("""
 Este aplicativo foi desenvolvido por um servidor público federal com o objetivo de apoiar a gestão de resíduos sólidos, 
 mapear oportunidades de compostagem e auxiliar municípios a se prepararem para o mercado de créditos de carbono.
 
-**Entre em contato com a equipe do SINISA Resíduos Sólidos para mais informações, parcerias ou para utilizar esta ferramenta em processos internos:**
-
-✉️ **E-mail:** sinisa.residuos@cidades.gov.br  
-📞 **Telefone:** (61) 3774-6265 / 6269 / 6267  
-📱 **WhatsApp:** (61) 3774-6266  
-
-Estou à disposição para ajustar o aplicativo às necessidades da equipe, colaborar em análises, elaboração de notas técnicas e no andamento de processos no SEI.
-
 **Potencial de uso:**  
 - Mapeamento de municípios com coleta seletiva de orgânicos.  
 - Estimativa de emissões evitadas com compostagem.  
