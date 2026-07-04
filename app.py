@@ -1187,6 +1187,8 @@ with tab_ia:
                                 st.markdown(f"""
                                 **📌 Dados de entrada:**
                                 - Massa de orgânicos que vai para aterro atualmente: **{formatar_br(massa_aterro_atual, auto_precision=False, casas_override=0)} t/ano**
+                                - **Taxa de decaimento (k) utilizada:** {formatar_br(k_pond, auto_precision=False, casas_override=3)} ano⁻¹ (calculada com base na caracterização dos resíduos)
+                                - **DOC utilizado:** {formatar_br(doc_pond, auto_precision=False, casas_override=3)} (fração de carbono degradável, ponderada pela composição)
                                 - Coeficiente de emissões do aterro por tonelada: **{formatar_br(co2_aterro / massa_aterro_atual if massa_aterro_atual > 0 else 0, auto_precision=False, casas_override=2)} tCO₂e/t**
                                 - Coeficiente de emissões da compostagem por tonelada: **{formatar_br(co2_compostagem / massa_aterro_atual if massa_aterro_atual > 0 else 0, auto_precision=False, casas_override=2)} tCO₂e/t**
                                 - Emissões evitadas por tonelada desviada: **{formatar_br(co2_evitado_por_t, auto_precision=False, casas_override=2)} tCO₂e/t**
@@ -1196,7 +1198,6 @@ with tab_ia:
                                 st.markdown("**🧮 Exemplo de cálculo para o Ano 1:**")
                                 ano1 = df_sim.iloc[0]
                                 
-                                # Formatando os números para exibição no texto
                                 massa_desviada_fmt = formatar_br(ano1['Massa_Desviada_Acumulada(t)'], auto_precision=False, casas_override=0)
                                 co2_evitado_ano_fmt = formatar_br(ano1['Massa_Desviada_Acumulada(t)'] * co2_evitado_por_t, auto_precision=False, casas_override=0)
                                 preco_carbono_fmt = formatar_br(st.session_state.preco_carbono, auto_precision=False, casas_override=2)
@@ -1210,7 +1211,6 @@ with tab_ia:
                                 - Câmbio EUR/BRL: R$ {cambio_fmt}
                                 """)
                                 
-                                # Fórmula em LaTeX com números formatados no padrão brasileiro
                                 st.latex(rf"""
                                 \text{{Receita anual}} = 
                                 {massa_desviada_fmt} \times 
