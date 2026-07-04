@@ -1306,7 +1306,7 @@ with tab_ia:
                         st.error(f"Erro na simulação: {e}")
 
     # =========================================================
-    # SEÇÃO 3: CENÁRIOS DE EXPANSÃO DA COMPOSTAGEM NO BRASIL
+    # SEÇÃO 3: CENÁRIOS DE EXPANSÃO DA COMPOSTAGEM NO BRASIL (CORRIGIDA)
     # =========================================================
     st.markdown("---")
     st.subheader("🌍 Cenários de Expansão da Compostagem no Brasil")
@@ -1388,12 +1388,13 @@ with tab_ia:
         # Botão para executar a simulação
         if st.button("📈 Simular Cenários de Expansão"):
             with st.spinner("Calculando cenários..."):
-                # --- Cenário 1: Desvio total (100% dos orgânicos coletados seletivamente para compostagem) ---
-                massa_desvio_total = total_aterro
+                # --- Cenário 1: Desvio total de TODOS os orgânicos coletados seletivamente ---
+                # Considera que, no baseline, toda essa massa iria para aterro; no projeto, toda vai para compostagem.
+                massa_desvio_total = total_massa  # AGORA USA A MASSA TOTAL (ATERRO + COMPOSTAGEM)
                 evitado_total = massa_desvio_total * co2_evitado_por_t
                 receita_total = evitado_total * st.session_state.preco_carbono * st.session_state.taxa_cambio
 
-                # --- Cenário 2: Aumento gradual ---
+                # --- Cenário 2: Aumento gradual (apenas sobre a parcela que ainda vai para aterro) ---
                 df_proj = []
                 massa_aterro_atual = total_aterro
                 for i in range(1, anos_cenario + 1):
@@ -1414,9 +1415,9 @@ with tab_ia:
                 col1, col2 = st.columns(2)
                 with col1:
                     st.metric(
-                        "Cenário 1 – Desvio Total",
+                        "Cenário 1 – Desvio Total (todos os orgânicos)",
                         f"R$ {formatar_br(receita_total, auto_precision=False, casas_override=2)}",
-                        help="Receita total com créditos de carbono se 100% dos orgânicos coletados seletivamente forem compostados."
+                        help="Receita total se 100% de todos os orgânicos coletados seletivamente forem compostados."
                     )
                     st.caption(f"Massa desviada: {formatar_br(massa_desvio_total, auto_precision=False, casas_override=0)} t")
                     st.caption(f"Emissões evitadas: {formatar_br(evitado_total, auto_precision=False, casas_override=2)} tCO₂e")
@@ -1426,7 +1427,7 @@ with tab_ia:
                     st.metric(
                         f"Cenário 2 – Aumento de {taxa_crescimento_cenario*100:.0f}% ao ano",
                         f"R$ {formatar_br(receita_final, auto_precision=False, casas_override=2)}",
-                        help=f"Receita acumulada em {anos_cenario} anos com aumento gradual da compostagem."
+                        help=f"Receita acumulada em {anos_cenario} anos com aumento gradual da compostagem sobre a parcela que ainda vai para aterro."
                     )
                     st.caption(f"Horizonte: {anos_cenario} anos")
 
@@ -1460,13 +1461,13 @@ with tab_ia:
 
                 st.info("""
                 💡 **Interpretação:**  
-                - O **Cenário 1** mostra o potencial máximo se todos os municípios que já coletam orgânicos passarem a compostar 100% do que coletam.
-                - O **Cenário 2** é mais realista, considerando um aumento gradual ano a ano na taxa de desvio.
+                - O **Cenário 1** mostra o potencial máximo se **todos os orgânicos coletados seletivamente** (incluindo os que já vão para compostagem) forem tratados por compostagem – ou seja, se o cenário baseline fosse que tudo fosse para aterro.  
+                - O **Cenário 2** é mais realista, considerando um aumento gradual ano a ano na taxa de desvio apenas sobre a parcela que ainda vai para aterro.  
                 - Ambos os cenários consideram apenas os municípios que já possuem coleta seletiva de orgânicos.
                 """)
 
     # =========================================================
-    # SEÇÃO 4: ANÁLISE DE COBERTURA DA COLETA SELETIVA DE ORGÂNICOS (CORRIGIDA)
+    # SEÇÃO 4: ANÁLISE DE COBERTURA DA COLETA SELETIVA DE ORGÂNICOS (COM DUAS TABELAS)
     # =========================================================
     st.markdown("---")
     st.subheader("📊 Análise de Cobertura da Coleta Seletiva de Orgânicos")
@@ -1538,9 +1539,6 @@ with tab_ia:
         with col1:
             st.markdown("#### 📊 Top 10 – Maior Percentual de Cobertura")
             top_pct = df_com_seletiva.nlargest(10, 'Pct_Seletiva')
-            # Garantir que a coluna UF exista
-            if 'UF' not in top_pct.columns:
-                top_pct['UF'] = ''
             top_pct = top_pct[['MUNICÍPIO', 'UF', 'Massa_Seletiva_Organicos', 'Massa_Total', 'Pct_Seletiva']]
             st.dataframe(
                 top_pct.style.format({
@@ -1554,8 +1552,6 @@ with tab_ia:
         with col2:
             st.markdown("#### 📊 Top 10 – Maior Massa Destinada à Compostagem")
             top_massa = df_com_seletiva.nlargest(10, 'Massa_Seletiva_Organicos')
-            if 'UF' not in top_massa.columns:
-                top_massa['UF'] = ''
             top_massa = top_massa[['MUNICÍPIO', 'UF', 'Massa_Seletiva_Organicos', 'Massa_Total', 'Pct_Seletiva']]
             st.dataframe(
                 top_massa.style.format({
@@ -1662,7 +1658,7 @@ with tab_ia:
         st.caption(f"Meta: {pct_media:.2f}% (média)")
 
     # =========================================================
-    # 📋 MUNICÍPIOS COM MENORES PERCENTUAIS E COM 0% DE COBERTURA (AJUSTADO)
+    # TABELAS ADICIONAIS: menores percentuais positivos e municípios com 0%
     # =========================================================
     with st.expander("📋 Municípios com menores percentuais de cobertura (referência para os cenários)"):
         st.markdown("#### 📊 Menores percentuais **positivos** (> 0%)")
