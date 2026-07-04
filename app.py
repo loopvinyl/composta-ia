@@ -325,7 +325,6 @@ def plot_projecao_residuos(df_proj):
     ax2.plot(df_proj['Ano'], df_proj['Massa_Projetada_ton'], 's-', color='green', linewidth=2, label='Massa')
     ax2.tick_params(axis='y', labelcolor='green')
     
-    # Anotações
     for i, row in df_proj.iterrows():
         ax1.annotate(f"{row['Populacao_Projetada']:,.0f}", 
                     (row['Ano'], row['Populacao_Projetada']), 
@@ -1175,7 +1174,7 @@ with tab_ia:
                             st.success(f"💰 **Potencial total em {anos_sim} anos para {titulo_sim}: R$ {valor_final:,.2f}**")
                             
                             # =========================================================
-                            # 📊 DETALHAMENTO DOS CÁLCULOS (NOVO)
+                            # 📊 DETALHAMENTO DOS CÁLCULOS (com formatação LaTeX)
                             # =========================================================
                             with st.expander("📊 Ver detalhamento dos cálculos (baseline e compostagem)"):
                                 st.markdown("""
@@ -1201,7 +1200,13 @@ with tab_ia:
                                 - Emissões evitadas no ano 1: **{ano1['Massa_Desviada_Acumulada(t)'] * co2_evitado_por_t:,.0f} tCO₂e**
                                 - Preço do carbono no ano 1: € {st.session_state.preco_carbono:.2f} (inflação de {inflacao_carbono*100:.0f}% ao ano)
                                 - Câmbio EUR/BRL: R$ {st.session_state.taxa_cambio:.2f}
-                                - **Receita anual (R$):** {ano1['Massa_Desviada_Acumulada(t)']:,.0f} × {co2_evitado_por_t:.2f} × {st.session_state.preco_carbono:.2f} × {st.session_state.taxa_cambio:.2f} = **R$ {ano1['Receita_Anual_BRL']:,.2f}**
+                                """)
+                                
+                                # Fórmula em LaTeX para visualização profissional
+                                st.latex(rf"""
+                                \text{{Receita anual}} = 
+                                {ano1['Massa_Desviada_Acumulada(t)']:,.0f} \times {co2_evitado_por_t:.2f} \times {st.session_state.preco_carbono:.2f} \times {st.session_state.taxa_cambio:.2f}
+                                = R\$ {ano1['Receita_Anual_BRL']:,.2f}
                                 """)
                                 
                                 # Tabela completa com emissões evitadas anuais
