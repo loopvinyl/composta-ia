@@ -505,17 +505,26 @@ with tab_tradicional:
     agg_grafico = df_mun_dest.groupby('destino_agrupado')['MASSA_FLOAT'].sum().reset_index()
     agg_grafico = agg_grafico.sort_values('MASSA_FLOAT', ascending=False).head(8)
 
-    fig_dest, ax_dest = plt.subplots(figsize=(8, 6))
+    # Ajuste do gráfico de pizza para evitar sobreposição
+    fig_dest, ax_dest = plt.subplots(figsize=(10, 8))
     cores = plt.cm.Set3(np.linspace(0, 1, len(agg_grafico)))
-    ax_dest.pie(
+    wedges, texts, autotexts = ax_dest.pie(
         agg_grafico['MASSA_FLOAT'],
         labels=agg_grafico['destino_agrupado'],
         autopct=lambda p: f'{p:.1f}%' if p > 1 else '',
         startangle=90,
         colors=cores,
-        textprops={'fontsize': 9}
+        textprops={'fontsize': 10},
+        pctdistance=0.85,
+        labeldistance=1.05
     )
+    # Ajusta a fonte dos rótulos para evitar sobreposição
+    for text in texts:
+        text.set_fontsize(9)
+    for autotext in autotexts:
+        autotext.set_fontsize(9)
     ax_dest.axis('equal')
+    plt.tight_layout()
     st.pyplot(fig_dest)
     plt.close(fig_dest)
     st.caption("📌 Classificação dos destinos feita pela IA (PLN) para padronizar as variações textuais do SNIS.")
@@ -575,6 +584,7 @@ with tab_tradicional:
         ax.set_xlabel('Massa (t)')
         ax.set_title('Top 10 destinos de resíduos')
         ax.xaxis.set_major_formatter(FuncFormatter(br_format))
+        plt.tight_layout()
         st.pyplot(fig)
         plt.close(fig)
 
@@ -617,6 +627,7 @@ with tab_tradicional:
             ax.set_xlabel('Massa (t)')
             ax.set_title('Top 10 estados')
             ax.xaxis.set_major_formatter(FuncFormatter(br_format))
+            plt.tight_layout()
             st.pyplot(fig)
             plt.close(fig)
 
@@ -745,17 +756,24 @@ with tab_tradicional:
         st.markdown("#### 📊 Composição da destinação dos orgânicos")
         agg_org_pie = df_organicos.groupby(COL_DESTINO)["MASSA_FLOAT"].sum().reset_index()
         agg_org_pie = agg_org_pie.sort_values("MASSA_FLOAT", ascending=False)
-        fig_pie, ax_pie = plt.subplots(figsize=(8, 6))
+        fig_pie, ax_pie = plt.subplots(figsize=(10, 8))
         cores_pie = plt.cm.Set3(np.linspace(0, 1, len(agg_org_pie)))
-        ax_pie.pie(
+        wedges, texts, autotexts = ax_pie.pie(
             agg_org_pie["MASSA_FLOAT"],
             labels=agg_org_pie[COL_DESTINO],
             autopct=lambda p: f'{p:.1f}%' if p > 1 else '',
             startangle=90,
             colors=cores_pie,
-            textprops={'fontsize': 9}
+            textprops={'fontsize': 9},
+            pctdistance=0.85,
+            labeldistance=1.05
         )
+        for text in texts:
+            text.set_fontsize(9)
+        for autotext in autotexts:
+            autotext.set_fontsize(9)
         ax_pie.axis('equal')
+        plt.tight_layout()
         st.pyplot(fig_pie)
         plt.close(fig_pie)
 
@@ -792,8 +810,6 @@ with tab_tradicional:
 
         df_resumo = pd.DataFrame(linhas)
         st.dataframe(df_resumo, use_container_width=True)
-
-        # O BLOCO DE "🔥 Emissões detalhadas (Orgânicos)" FOI REMOVIDO AQUI
 
     else:
         st.info("ℹ️ Sem registros de coleta seletiva de orgânicos.")
@@ -1523,7 +1539,9 @@ with tab_ia:
     ax.set_title('Distribuição da cobertura da coleta seletiva de orgânicos por município')
     ax.legend()
     ax.grid(True, linestyle='--', alpha=0.3)
+    plt.tight_layout()
     st.pyplot(fig)
+    plt.close(fig)
 
     # -----------------------------------------------------------------
     # 3. Cenários de expansão: Atual (Pessimista), Realista (1º Quartil), Otimista (Média)
