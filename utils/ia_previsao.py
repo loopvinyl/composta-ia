@@ -1,160 +1,145 @@
 import pandas as pd
 import numpy as np
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error, r2_score
-from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-from datetime import datetime, timedelta
+from datetime import datetime
 
-def preparar_dados_previsao(df_municipio, anos_historicos=[2023, 2024]):
+def projetar_residuos_per_capita(populacao_atual, massa_anual_atual, 
+                                 taxa_crescimento_pop=0.01, anos=10):
     """
-    Prepara os dados para previsão de geração de resíduos.
-    Para cada município, calcula:
-    - Massa total coletada por ano
-    - População (se disponível)
-    - Geração per capita (kg/hab/ano)
-    - Tendência linear de crescimento
+    Projeta a geração de resíduos com base no crescimento populacional.
+    Assume que a geração per capita permanece constante.
+    
+    Parâmetros:
+    - populacao_atual: habitantes
+    - massa_anual_atual: toneladas/ano
+    - taxa_crescimento_pop: ex: 0.01 = 1% ao ano
+    - anos: número de anos para projetar
+    
+    Retorna: DataFrame com Ano, Populacao_Projetada, Massa_Projetada_ton
     """
-    # Agrupa por município e ano
-    df_agg = df_municipio.groupby(['MUNICÍPIO', 'UF']).agg({
-        'MASSA_COLETADA': 'sum',
-        'ANO': 'first'  # apenas para referência
-    }).reset_index()
+    if populacao_atual <= 0 or massa_anual_atual <= 0:
+        raise ValueError("População e massa devem ser maiores que zero.")
     
-    # Simula dados de população (se não estiver disponível, usa estimativa)
-    # Nota: no SNIS, a população está em colunas como DFE0001, mas pode não estar presente.
-    # Vamos usar uma estimativa fictícia para demonstração.
-    # Na prática, você pode buscar do IBGE ou usar a coluna de população do SNIS.
-    df_agg['Populacao'] = df_agg['MASSA_COLETADA'] / 0.5  # supondo 500 kg/hab/ano, valor médio
-    df_agg['Geracao_per_capita'] = df_agg['MASSA_COLETADA'] / df_agg['Populacao']
+    per_capita = massa_anual_atual / populacao_atual
+    resultados = []
+    pop = populacao_atual
+    massa = massa_anual_atual
     
-    # Cria features de tempo (ano)
-    df_agg['Ano'] = pd.to_numeric(df_agg['ANO'], errors='coerce')
-    df_agg = df_agg.dropna(subset=['Ano'])
-    
-    # Ordena por ano
-    df_agg = df_agg.sort_values('Ano')
-    
-    return df_agg
+    for i in range(1, anos + 1):
+        pop = pop * (1 + taxa_crescimento_pop)
+        massa = pop * per_capita
+        resultados.append({
+            'Ano': datetime.now().year + i,
+            'Populacao_Projetada': pop,
+            'Massa_Projetada_ton': massa
+        })
+    return pd.DataFrame(resultados)
 
-def treinar_modelo_previsao(df_municipio, target='MASSA_COLETADA', test_size=0.2):
-    """
-    Treina um modelo Random Forest para prever a massa coletada.
-    Utiliza como features: ano, população, geração per capita, e outras derivadas.
-    """
-    # Prepara os dados
-    df = preparar_dados_previsao(df_municipio)
-    
-    # Seleciona features
-    features = ['Ano', 'Populacao', 'Geracao_per_capita']
-    X = df[features].copy()
-    y = df[target]
-    
-    # Remove linhas com NaN
-    X = X.fillna(0)
-    y = y.fillna(0)
-    
-    # Escala os dados
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-    
-    # Divide treino e teste
-    X_train, X_test, y_train, y_test = train_test_split(
-        X_scaled, y, test_size=test_size, random_state=42
-    )
-    
-    # Treina o modelo
-    model = RandomForestRegressor(
-        n_estimators=100,
-        random_state=42,
-        max_depth=10,
-        min_samples_split=5
-    )
-    model.fit(X_train, y_train)
-    
-    # Avalia o modelo
-    y_pred = model.predict(X_test)
-    mae = mean_absolute_error(y_test, y_pred)
-    r2 = r2_score(y_test, y_pred)
-    
-    print(f"✅ Modelo treinado - MAE: {mae:.2f} t, R²: {r2:.2f}")
-    
-    return model, scaler, df, mae, r2
 
-def prever_futuro(model, scaler, df_historico, anos_futuros=[2025, 2026, 2027, 2028, 2029, 2030]):
+def simular_cenarios_compostagem(massa_aterro_ano, 
+                                 co2_evitado_por_tonelada, 
+                                 preco_carbono_atual, 
+                                 taxa_cambio,
+                                 anos_projecao=10, 
+                                 taxa_crescimento_compostagem=0.10,
+                                 inflacao_carbono=0.02):
     """
-    Faz previsões para os anos futuros com base no modelo treinado.
+    Simula o ganho financeiro ao aumentar gradualmente a compostagem.
+    
+    Parâmetros:
+    - massa_aterro_ano: toneladas de orgânico que vão para aterro atualmente
+    - co2_evitado_por_tonelada: tCO2e evitado por tonelada desviada (já calculado)
+    - preco_carbono_atual: em Euro
+    - taxa_cambio: EUR/BRL
+    - anos_projecao: quantos anos simular
+    - taxa_crescimento_compostagem: % de aumento anual no desvio (ex: 0.10 = 10%)
+    - inflacao_carbono: % de aumento anual no preço do carbono (ex: 0.02 = 2%)
+    
+    Retorna: DataFrame com Ano, Massa_Desviada_Acumulada, Receita_Acumulada_BRL, Ganho_Adicional_BRL
     """
-    # Obtém a última população e geração per capita conhecidas
-    ultimo_ano = df_historico['Ano'].max()
-    ultima_linha = df_historico[df_historico['Ano'] == ultimo_ano].iloc[-1]
+    if massa_aterro_ano <= 0:
+        raise ValueError("Massa de aterro deve ser maior que zero.")
     
-    pop_atual = ultima_linha['Populacao']
-    gpc_atual = ultima_linha['Geracao_per_capita']
+    resultados = []
+    # Cenário estático (sem aumento) - mantém a massa atual
+    massa_estatica = massa_aterro_ano
     
-    # Estima taxa de crescimento populacional (ex: 1% ao ano)
-    taxa_crescimento_pop = 0.01
-    # Estima tendência de geração per capita (ex: aumento de 0.5% ao ano)
-    tendencia_gpc = 0.005
-    
-    previsoes = []
-    for ano in anos_futuros:
-        # Projeta população e geração per capita
-        anos_diff = ano - ultimo_ano
-        pop_futura = pop_atual * (1 + taxa_crescimento_pop) ** anos_diff
-        gpc_futura = gpc_atual * (1 + tendencia_gpc) ** anos_diff
+    for ano in range(1, anos_projecao + 1):
+        # Cenário Projetado (com aumento)
+        fator_desvio = (1 + taxa_crescimento_compostagem) ** (ano - 1)
+        massa_projetada = massa_aterro_ano * fator_desvio
         
-        # Cria o vetor de features para o modelo
-        X_futuro = np.array([[ano, pop_futura, gpc_futura]])
-        X_futuro_scaled = scaler.transform(X_futuro)
+        # Atualiza preço do carbono (com inflação)
+        preco_atualizado = preco_carbono_atual * (1 + inflacao_carbono) ** (ano - 1)
         
-        # Faz a previsão
-        previsao = model.predict(X_futuro_scaled)[0]
-        previsoes.append({
-            'Ano': ano,
-            'Populacao_Estimada': pop_futura,
-            'Geracao_per_capita_Estimada': gpc_futura,
-            'Massa_Prevista (t)': previsao
+        # Emissões evitadas
+        co2_evitado_estatico = massa_estatica * co2_evitado_por_tonelada
+        co2_evitado_projetado = massa_projetada * co2_evitado_por_tonelada
+        
+        # Receita em Real (acumulada)
+        receita_estatico_brl = co2_evitado_estatico * preco_atualizado * taxa_cambio
+        receita_projetado_brl = co2_evitado_projetado * preco_atualizado * taxa_cambio
+        
+        # Ganho incremental (o quanto a política de aumento gera a mais)
+        ganho_incremental = receita_projetado_brl - receita_estatico_brl
+        
+        resultados.append({
+            'Ano': datetime.now().year + ano,
+            'Massa_Desviada_Acumulada(t)': massa_projetada,
+            'Receita_Anual_BRL': receita_projetado_brl,
+            'Ganho_Adicional_BRL': ganho_incremental
         })
     
-    return pd.DataFrame(previsoes)
+    df = pd.DataFrame(resultados)
+    # Calcula o acumulado
+    df['Receita_Acumulada_BRL'] = df['Receita_Anual_BRL'].cumsum()
+    return df
 
-def plot_previsao(df_historico, df_previsao):
-    """
-    Gera gráfico com os dados históricos e a projeção futura.
-    """
-    fig, ax = plt.subplots(figsize=(12, 6))
+
+def plot_projecao_residuos(df_proj):
+    """Gera gráfico de duplo eixo: população e massa de resíduos."""
+    fig, ax1 = plt.subplots(figsize=(10, 6))
     
-    # Dados históricos
-    anos_hist = df_historico['Ano'].values
-    massas_hist = df_historico['MASSA_COLETADA'].values
+    ax1.set_xlabel('Ano')
+    ax1.set_ylabel('População (habitantes)', color='blue')
+    ax1.plot(df_proj['Ano'], df_proj['Populacao_Projetada'], 'o-', color='blue', linewidth=2, label='População')
+    ax1.tick_params(axis='y', labelcolor='blue')
     
-    ax.plot(anos_hist, massas_hist, 'o-', label='Dados Históricos', color='blue', linewidth=2)
+    ax2 = ax1.twinx()
+    ax2.set_ylabel('Massa de Resíduos (toneladas/ano)', color='green')
+    ax2.plot(df_proj['Ano'], df_proj['Massa_Projetada_ton'], 's-', color='green', linewidth=2, label='Massa')
+    ax2.tick_params(axis='y', labelcolor='green')
     
-    # Dados previstos
-    anos_fut = df_previsao['Ano'].values
-    massas_fut = df_previsao['Massa_Prevista (t)'].values
+    # Anotações
+    for i, row in df_proj.iterrows():
+        ax1.annotate(f"{row['Populacao_Projetada']:,.0f}", 
+                    (row['Ano'], row['Populacao_Projetada']), 
+                    textcoords="offset points", xytext=(0,10), ha='center', fontsize=8, color='blue')
+        ax2.annotate(f"{row['Massa_Projetada_ton']:,.0f}", 
+                    (row['Ano'], row['Massa_Projetada_ton']), 
+                    textcoords="offset points", xytext=(0,-15), ha='center', fontsize=8, color='green')
     
-    ax.plot(anos_fut, massas_fut, 's--', label='Previsão', color='green', linewidth=2)
+    plt.title('Projeção de População e Geração de Resíduos', fontsize=14)
+    fig.tight_layout()
+    return fig
+
+
+def plot_simulacao_compostagem(df_sim):
+    """Gera gráfico da receita acumulada com créditos de carbono."""
+    fig, ax = plt.subplots(figsize=(10, 6))
     
-    # Adiciona rótulos
-    for i, (ano, massa) in enumerate(zip(anos_hist, massas_hist)):
-        ax.annotate(f'{massa:.0f}', (ano, massa), textcoords="offset points", xytext=(0,10), ha='center', fontsize=8)
+    ax.plot(df_sim['Ano'], df_sim['Receita_Acumulada_BRL'], 'o-', color='green', linewidth=2, label='Receita Acumulada')
+    ax.fill_between(df_sim['Ano'], 0, df_sim['Receita_Acumulada_BRL'], alpha=0.3, color='lightgreen')
     
-    for i, (ano, massa) in enumerate(zip(anos_fut, massas_fut)):
-        ax.annotate(f'{massa:.0f}', (ano, massa), textcoords="offset points", xytext=(0,10), ha='center', fontsize=8)
+    # Anotações
+    for i, row in df_sim.iterrows():
+        ax.annotate(f"R$ {row['Receita_Acumulada_BRL']:,.0f}", 
+                    (row['Ano'], row['Receita_Acumulada_BRL']), 
+                    textcoords="offset points", xytext=(0,10), ha='center', fontsize=8)
     
     ax.set_xlabel('Ano')
-    ax.set_ylabel('Massa Coletada (t)')
-    ax.set_title('Previsão de Geração de Resíduos Sólidos Urbanos')
+    ax.set_ylabel('Receita Acumulada (R$)')
+    ax.set_title('Projeção de Ganhos com Créditos de Carbono (Compostagem)', fontsize=14)
+    ax.grid(True, linestyle='--', alpha=0.5)
     ax.legend()
-    ax.grid(True, linestyle='--', alpha=0.3)
-    
-    # Ajusta os ticks do eixo X
-    todos_anos = sorted(set(anos_hist) | set(anos_fut))
-    ax.set_xticks(todos_anos)
-    ax.set_xticklabels([str(int(a)) for a in todos_anos])
-    
     return fig
