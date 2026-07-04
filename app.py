@@ -1450,7 +1450,7 @@ with tab_ia:
 
     st.markdown("""
     Esta seção analisa o percentual da massa total de resíduos que é coberta pela coleta seletiva de orgânicos em cada município,
-    e projeta o impacto de uma expansão da cobertura para todos os municípios.
+    e projeta o impacto de uma expansão da cobertura para todos os municípios, com três cenários.
     """)
 
     # -----------------------------------------------------------------
@@ -1527,70 +1527,95 @@ with tab_ia:
     st.pyplot(fig)
 
     # -----------------------------------------------------------------
-    # 3. Cenário de expansão: todos os municípios com coleta seletiva
+    # 3. Cenários de expansão: Atual (Pessimista), Realista (1º Quartil), Otimista (Média)
     # -----------------------------------------------------------------
-    st.markdown("### 🚀 Cenário de Expansão: Universalização da Coleta Seletiva")
+    st.markdown("### 🚀 Cenários de Expansão da Cobertura")
 
     st.markdown("""
-    Simule o impacto se **todos os municípios que não têm coleta seletiva de orgânicos passarem a ter**, 
-    alcançando o mesmo percentual médio de cobertura dos municípios que já possuem coleta seletiva.
+    Três cenários são apresentados para a universalização da coleta seletiva de orgânicos:
+    - **Cenário Atual (Pessimista)**: mantém a situação atual (sem expansão).
+    - **Cenário Realista**: municípios sem coleta seletiva alcançam o **1º quartil (25%)** dos percentuais dos municípios que já possuem coleta seletiva.
+    - **Cenário Otimista**: municípios sem coleta seletiva alcançam a **média** dos percentuais dos municípios que já possuem coleta seletiva.
     """)
 
-    # Calcular a média do percentual de cobertura dos municípios que JÁ POSSUEM coleta seletiva
+    # Calcular métricas para os cenários
     df_com_seletiva = df_cobertura[df_cobertura['Possui_Seletiva']]
-    if not df_com_seletiva.empty:
-        media_pct_alvo = df_com_seletiva['Pct_Seletiva'].mean()
+    if not df_com_seletiva.empty and len(df_com_seletiva) >= 4:
+        pct_25 = np.percentile(df_com_seletiva['Pct_Seletiva'], 25)
+        pct_media = df_com_seletiva['Pct_Seletiva'].mean()
+    elif not df_com_seletiva.empty:
+        pct_25 = df_com_seletiva['Pct_Seletiva'].min()
+        pct_media = df_com_seletiva['Pct_Seletiva'].mean()
     else:
-        media_pct_alvo = 0
+        pct_25 = 0
+        pct_media = 0
 
-    # Calcular a massa adicional que seria desviada
+    # Massa adicional para cada cenário
     df_sem_seletiva = df_cobertura[~df_cobertura['Possui_Seletiva']]
     massa_sem_seletiva = df_sem_seletiva['Massa_Total'].sum()
-    massa_adicional = massa_sem_seletiva * (media_pct_alvo / 100)
 
-    # Emissões evitadas e receita adicionais
+    # Cenário Realista (1º quartil)
+    massa_adicional_realista = massa_sem_seletiva * (pct_25 / 100) if pct_25 > 0 else 0
+    # Cenário Otimista (média)
+    massa_adicional_otimista = massa_sem_seletiva * (pct_media / 100) if pct_media > 0 else 0
+
+    # Emissões evitadas e receita para cada cenário
     doc_medio, k_medio = DOC_PADRAO, K_PADRAO
     co2_aterro_por_t = calcular_co2eq_aterro_20anos(1, 0.8, k_medio, doc_medio)
     co2_compost_por_t = calcular_co2eq_compostagem_UNFCCC(1)
     co2_evitado_por_t = co2_aterro_por_t - co2_compost_por_t
 
-    evitado_adicional = massa_adicional * co2_evitado_por_t
-    receita_adicional = evitado_adicional * st.session_state.preco_carbono * st.session_state.taxa_cambio
+    # Cenário Atual (já calculado anteriormente)
+    evitado_atual = massa_seletiva_brasil * co2_evitado_por_t
+    receita_atual = evitado_atual * st.session_state.preco_carbono * st.session_state.taxa_cambio
 
-    # Exibir resultados do cenário
-    if massa_adicional > 0:
-        st.markdown("#### 📈 Resultados do Cenário de Expansão")
-        col1, col2, col3 = st.columns(3)
-        col1.metric(
-            "Massa adicional desviada",
-            f"{formatar_br(massa_adicional, auto_precision=False, casas_override=0)} t"
-        )
-        col2.metric(
-            "Emissões evitadas adicionais",
-            f"{formatar_br(evitado_adicional, auto_precision=False, casas_override=2)} tCO₂e"
-        )
-        col3.metric(
-            "Receita potencial adicional",
-            f"R$ {formatar_br(receita_adicional, auto_precision=False, casas_override=2)}",
-            help="Receita total com créditos de carbono para a massa adicional desviada para compostagem."
-        )
+    # Emissões evitadas adicionais e totais para cada cenário
+    evitado_adicional_realista = massa_adicional_realista * co2_evitado_por_t
+    evitado_total_realista = evitado_atual + evitado_adicional_realista
+    receita_total_realista = receita_atual + (evitado_adicional_realista * st.session_state.preco_carbono * st.session_state.taxa_cambio)
 
-        # Comparação com o cenário atual
-        st.caption(f"""
-        **Comparação:**  
-        - Atualmente, a coleta seletiva de orgânicos cobre **{formatar_br(pct_seletiva_brasil, auto_precision=False, casas_override=2)}%** da massa total de RSU.  
-        - Municípios que já têm coleta seletiva cobrem, em média, **{formatar_br(media_pct_alvo, auto_precision=False, casas_override=2)}%** da sua massa total.  
-        - Se todos os municípios sem coleta seletiva alcançassem esse mesmo patamar, a cobertura nacional chegaria a **{formatar_br(((massa_seletiva_brasil + massa_adicional) / massa_total_brasil) * 100 if massa_total_brasil > 0 else 0, auto_precision=False, casas_override=2)}%** da massa total.  
-        - A receita adicional seria de **R$ {formatar_br(receita_adicional, auto_precision=False, casas_override=2)}**.
-        """)
-    else:
-        st.info("Todos os municípios já possuem coleta seletiva de orgânicos ou não há dados suficientes para o cálculo.")
+    evitado_adicional_otimista = massa_adicional_otimista * co2_evitado_por_t
+    evitado_total_otimista = evitado_atual + evitado_adicional_otimista
+    receita_total_otimista = receita_atual + (evitado_adicional_otimista * st.session_state.preco_carbono * st.session_state.taxa_cambio)
+
+    # Exibir resultados em três colunas
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("#### 📉 Cenário Atual (Pessimista)")
+        st.metric("Emissões evitadas atuais", f"{formatar_br(evitado_atual, auto_precision=False, casas_override=2)} tCO₂e")
+        st.metric("Receita atual", f"R$ {formatar_br(receita_atual, auto_precision=False, casas_override=2)}")
+        st.caption(f"Cobertura nacional: {formatar_br(pct_seletiva_brasil, auto_precision=False, casas_override=2)}%")
+    with col2:
+        st.markdown("#### 📊 Cenário Realista (1º Quartil)")
+        st.metric("Massa adicional desviada", f"{formatar_br(massa_adicional_realista, auto_precision=False, casas_override=0)} t")
+        st.metric("Emissões evitadas totais", f"{formatar_br(evitado_total_realista, auto_precision=False, casas_override=2)} tCO₂e")
+        st.metric("Receita total", f"R$ {formatar_br(receita_total_realista, auto_precision=False, casas_override=2)}")
+        st.caption(f"Meta: {pct_25:.2f}% (1º quartil)")
+    with col3:
+        st.markdown("#### 📈 Cenário Otimista (Média)")
+        st.metric("Massa adicional desviada", f"{formatar_br(massa_adicional_otimista, auto_precision=False, casas_override=0)} t")
+        st.metric("Emissões evitadas totais", f"{formatar_br(evitado_total_otimista, auto_precision=False, casas_override=2)} tCO₂e")
+        st.metric("Receita total", f"R$ {formatar_br(receita_total_otimista, auto_precision=False, casas_override=2)}")
+        st.caption(f"Meta: {pct_media:.2f}% (média)")
+
+    # Exibir os municípios de referência (menores percentuais)
+    with st.expander("📋 Municípios com menores percentuais de cobertura (referência para o cenário realista)"):
+        df_referencia = df_com_seletiva.nsmallest(10, 'Pct_Seletiva')[['MUNICÍPIO', 'Pct_Seletiva', 'Massa_Total']]
+        st.dataframe(
+            df_referencia.style.format({
+                'Pct_Seletiva': lambda x: formatar_br(x, auto_precision=False, casas_override=2) + '%',
+                'Massa_Total': lambda x: formatar_br(x, auto_precision=False, casas_override=0)
+            }),
+            use_container_width=True
+        )
+        st.caption(f"📌 O cenário realista usa o 1º quartil ({pct_25:.2f}%) como meta, baseado nos 25% menores percentuais.")
 
     st.info("""
     💡 **Interpretação:**  
-    - Este cenário considera que os municípios sem coleta seletiva alcançam o mesmo nível de cobertura dos municípios que já a possuem.  
-    - A receita adicional representa o ganho financeiro com créditos de carbono se a coleta seletiva de orgânicos for universalizada com base nos padrões atuais.  
-    - Esse cenário é mais realista do que assumir 100% de cobertura, pois respeita as limitações operacionais e logísticas atuais.
+    - O cenário atual mostra as emissões evitadas com a infraestrutura existente.  
+    - O cenário realista é uma meta factível, baseada no que os municípios com menores índices já conseguem alcançar.  
+    - O cenário otimista representa uma meta mais ambiciosa, baseada na média dos municípios que já possuem coleta seletiva.  
+    - A receita total considera o preço do carbono e o câmbio atuais.
     """)
 
 # =========================================================
