@@ -355,7 +355,7 @@ def plot_simulacao_compostagem(df_sim):
 @st.cache_data
 def load_data(ano):
     url = URLS_POR_ANO[ano]
-    df = pd.read_excel(url, sheet_name="Manejo_Coleta_e_Destinação", header=13)
+    df = pd.read_excel(url, sheet_name="Manejo_Coleta_e_Destinação", header=12)
     df = df.dropna(how="all")
     df.columns = [str(col).strip() for col in df.columns]
     return df
