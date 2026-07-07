@@ -152,7 +152,7 @@ def formatar_eixo_abreviado(x, pos):
 # =========================================================
 GWP_CH4 = 28.0
 GWP_N2O = 265.0
-PHI_APPLICATION_B = 0.85
+PHI_APPLICATION_B = 0.85      # para clima úmido (Brasil majoritariamente)
 OX_SOIL_COVER = 0.383
 F_METHANE_FRACTION = 0.5
 MCF_DEFAULT_BULK = 0.8
@@ -164,44 +164,77 @@ DOC_PADRAO = 0.15
 K_PADRAO = 0.07
 
 # =========================================================
-# FUNÇÃO PARA CALCULAR DOC e k PONDERADOS (VIA SNIS)
+# FUNÇÃO PARA CALCULAR DOC, DOC_f e k PONDERADOS (VIA SNIS)
 # =========================================================
 def calcular_doc_k_ponderado(df_municipio):
-    colunas_caract = {
-        'Alimentos_Verdes': 'GTR1501',
-        'Vidros': 'GTR1502',
-        'Metais': 'GTR1503',
-        'Plasticos': 'GTR1504',
-        'Papeis': 'GTR1505',
-        'Têxteis': 'GTR1506',
-        'Outros': 'GTR1507'
+    """
+    Calcula DOC médio, DOC_f (fração que realmente se decompõe) e k (decay rate)
+    com base na caracterização dos resíduos (colunas GTR1501 a GTR1507).
+    Segue as Tabelas 7 e 10 da UNFCCC A6.4-AMT-003 (Tropical Wet).
+    """
+    # Mapeamento para DOC (Tabela 9 do anexo - % wet waste)
+    doc_map = {
+        'GTR1501': 0.15,  # Alimentos e Verdes (15%)
+        'GTR1502': 0.00,  # Vidros (inerte)
+        'GTR1503': 0.00,  # Metais (inerte)
+        'GTR1504': 0.00,  # Plásticos (inerte)
+        'GTR1505': 0.40,  # Papéis (40%)
+        'GTR1506': 0.24,  # Têxteis (24%)
+        'GTR1507': 0.10   # Outros (madeira, etc. - 10%)
     }
-    colunas_presentes = [col for col in colunas_caract.values() if col in df_municipio.columns]
-    if not colunas_presentes:
-        return DOC_PADRAO, K_PADRAO
-    df_caract = df_municipio[colunas_presentes].copy()
-    for col in df_caract.columns:
-        df_caract[col] = pd.to_numeric(df_caract[col], errors='coerce').fillna(0)
-    pct = {}
-    for nome, col in colunas_caract.items():
-        if col in df_caract.columns:
-            val = df_caract[col].mean()
-            pct[nome] = val if val > 0 else 0
-        else:
-            pct[nome] = 0
-    if sum(pct.values()) == 0:
-        return DOC_PADRAO, K_PADRAO
-    doc_pond = (pct['Alimentos_Verdes'] * 0.7 +
-                pct['Papeis'] * 0.5 +
-                pct['Têxteis'] * 0.24 +
-                pct['Outros'] * 0.1) / 100.0
-    k_pond = (pct['Alimentos_Verdes'] * 0.17 +
-              pct['Papeis'] * 0.07 +
-              pct['Têxteis'] * 0.07 +
-              pct['Outros'] * 0.035) / 100.0
-    doc_pond = max(doc_pond, DOC_PADRAO) if doc_pond > 0 else DOC_PADRAO
-    k_pond = max(k_pond, K_PADRAO) if k_pond > 0 else K_PADRAO
-    return doc_pond, k_pond
+
+    # Mapeamento para DOC_f (Tabela 7 - fração que se decompõe)
+    docf_map = {
+        'GTR1501': 0.7,   # Altamente decomponível (alimentos/verdes)
+        'GTR1502': 0.0,   # Inerte
+        'GTR1503': 0.0,   # Inerte
+        'GTR1504': 0.0,   # Inerte
+        'GTR1505': 0.5,   # Moderadamente decomponível (papéis)
+        'GTR1506': 0.5,   # Moderadamente decomponível (têxteis)
+        'GTR1507': 0.1    # Pouco decomponível (madeira, etc.)
+    }
+
+    # Mapeamento para k (Tabela 10 - Tropical Wet, MAP > 1000mm)
+    k_map = {
+        'GTR1501': 0.17,  # Outros orgânicos putrescíveis (jardim/poda) - conservador
+        'GTR1502': 0.0,
+        'GTR1503': 0.0,
+        'GTR1504': 0.0,
+        'GTR1505': 0.07,  # Papel, papelão (Tropical Wet)
+        'GTR1506': 0.07,  # Têxteis (Tropical Wet)
+        'GTR1507': 0.035  # Madeira, produtos de madeira (Tropical Wet)
+    }
+
+    # Seleciona as colunas disponíveis no DataFrame
+    cols = [col for col in doc_map.keys() if col in df_municipio.columns]
+    if not cols:
+        # Fallback para valores padrão caso não haja caracterização
+        return 0.15, 0.5, 0.07  # (DOC, DOC_f, k) - valores médios
+
+    # Converte para numérico e preenche NAs com 0
+    pct = pd.to_numeric(df_municipio[cols], errors='coerce').fillna(0)
+
+    # Calcula as médias ponderadas (assumindo que as colunas são percentuais em %)
+    # Soma dos percentuais para normalização (pode ser diferente de 100% devido a arredondamentos)
+    total_pct = pct.sum().sum()  # soma de todas as frações
+    if total_pct <= 0:
+        return 0.15, 0.5, 0.07
+
+    # DOC médio
+    doc_pond = sum(pct[col].sum() * doc_map.get(col, 0) for col in cols) / total_pct
+
+    # DOC_f médio
+    docf_pond = sum(pct[col].sum() * docf_map.get(col, 0) for col in cols) / total_pct
+
+    # k médio (ano^-1)
+    k_pond = sum(pct[col].sum() * k_map.get(col, 0) for col in cols) / total_pct
+
+    # Limites para evitar valores fora da faixa esperada
+    doc_pond = max(0.01, min(0.5, doc_pond))
+    docf_pond = max(0.05, min(0.9, docf_pond))
+    k_pond = max(0.01, min(0.5, k_pond))
+
+    return doc_pond, docf_pond, k_pond
 
 # =========================================================
 # FUNÇÕES DE CÁLCULO – ATERRO (BASELINE UNFCCC)
@@ -213,27 +246,38 @@ def construir_lotes_diarios(massa_total_ano_kg, dias_entrada=365, dias_projecao=
         entrada[:dias_entrada] = massa_diaria
     return entrada
 
-def calcular_emissoes_aterro_diario(massa_total_ano_kg, mcf, k_ano, temp_C, doc,
+def calcular_emissoes_aterro_diario(massa_total_ano_kg, mcf, k_ano, doc_pond, docf_pond,
                                     phi=PHI_APPLICATION_B, ox=OX_SOIL_COVER,
                                     dias_projecao=DIAS_PROJECAO, dias_entrada=365):
+    """
+    Retorna arrays diários de CH4 (kg) e CO2e (t) para um ano de entrada.
+    """
     if massa_total_ano_kg <= 0 or mcf <= 0:
         return np.zeros(dias_projecao), np.zeros(dias_projecao)
-    docf = 0.0147 * temp_C + 0.28
-    ch4_pot_por_kg = (doc * docf * mcf * F_METHANE_FRACTION * (16/12) *
+
+    ch4_pot_por_kg = (doc_pond * docf_pond * mcf * F_METHANE_FRACTION * (16/12) *
                       (1 - ox) * phi)
+
     entrada = construir_lotes_diarios(massa_total_ano_kg, dias_entrada, dias_projecao)
     t = np.arange(1, dias_projecao + 1, dtype=float)
     kernel_ch4 = np.exp(-k_ano * (t - 1) / 365.0) - np.exp(-k_ano * t / 365.0)
     kernel_ch4 = np.maximum(kernel_ch4, 0)
+
     ch4_diario_kg = np.convolve(entrada, kernel_ch4, mode='full')[:dias_projecao] * ch4_pot_por_kg
     co2eq_diario_t = (ch4_diario_kg * GWP_CH4) / 1000.0
     return ch4_diario_kg, co2eq_diario_t
 
-def calcular_co2eq_aterro_20anos(massa_t_ano, mcf, k_ano, doc):
+def calcular_co2eq_aterro_20anos(massa_t_ano, mcf, k_ano, doc_pond, docf_pond):
+    """
+    Calcula as emissões acumuladas em 20 anos (tCO2e) para uma massa anual de resíduos
+    enviada a um aterro, utilizando o modelo FOD da UNFCCC.
+    Agora com docf_pond baseado na Tabela 7 do anexo.
+    """
     if massa_t_ano <= 0 or mcf <= 0:
         return 0.0
+
     massa_kg = massa_t_ano * 1000
-    _, co2eq_dia = calcular_emissoes_aterro_diario(massa_kg, mcf, k_ano, T_ORGANICO, doc)
+    _, co2eq_dia = calcular_emissoes_aterro_diario(massa_kg, mcf, k_ano, doc_pond, docf_pond)
     return co2eq_dia.sum()
 
 def calcular_co2eq_compostagem_UNFCCC(massa_t_ano):
@@ -350,14 +394,27 @@ def plot_simulacao_compostagem(df_sim):
     return fig
 
 # =========================================================
-# CARREGAMENTO E PREPARAÇÃO DOS DADOS
+# CARREGAMENTO E PREPARAÇÃO DOS DADOS (MODIFICADO)
 # =========================================================
 @st.cache_data
 def load_data(ano):
     url = URLS_POR_ANO[ano]
-    df = pd.read_excel(url, sheet_name="Manejo_Coleta_e_Destinação", header=12)
-    df = df.dropna(how="all")
-    df.columns = [str(col).strip() for col in df.columns]
+    
+    # 1. Carrega a aba principal (rotas de coleta e destinação)
+    df_coleta = pd.read_excel(url, sheet_name="Manejo_Coleta_e_Destinação", header=12)
+    
+    # 2. Carrega a aba de caracterização dos resíduos (composição)
+    df_caract = pd.read_excel(url, sheet_name="Manejo_Resíduos_Sólidos_Urbanos", header=12)
+    
+    # 3. Seleciona apenas as colunas necessárias da caracterização
+    cols_caract = ['Cod_IBGE', 'GTR1501', 'GTR1502', 'GTR1503', 'GTR1504', 'GTR1505', 'GTR1506', 'GTR1507']
+    # Verifica se as colunas existem (por segurança)
+    cols_existentes = [col for col in cols_caract if col in df_caract.columns]
+    df_caract_filtrado = df_caract[cols_existentes]
+    
+    # 4. Faz o merge com a tabela de coleta usando a chave 'Cod_IBGE'
+    df = pd.merge(df_coleta, df_caract_filtrado, on='Cod_IBGE', how='left')
+    
     return df
 
 df = load_data(ano_selecionado)
@@ -577,7 +634,7 @@ with tab_tradicional:
             plt.close(fig)
 
     # =========================================================
-    # 4. 🏆 RANKING MUNICIPAL
+    # 4. 🏆 RANKING MUNICIPAL (MODIFICADO)
     # =========================================================
     if municipio == municipios[0]:
         st.markdown("---")
@@ -623,15 +680,26 @@ with tab_tradicional:
                     massa_total_local = grupo["MASSA_FLOAT_RANK"].sum()
                     destinos = ", ".join(sorted(grupo[COL_DESTINO].unique()))
                     
+                    # ---- Cálculo do MCF ponderado para este município ----
+                    # Para cada destino, calculamos o MCF e multiplicamos pela massa
                     grupo["MCF"] = grupo[COL_DESTINO].apply(lambda x: determinar_mcf_por_destino(x, 'organico'))
-                    massa_aterro_local = grupo[grupo["MCF"] > 0]["MASSA_FLOAT_RANK"].sum()
+                    # Massa que vai para aterro (MCF > 0)
+                    grupo_aterro = grupo[grupo["MCF"] > 0]
+                    massa_aterro_local = grupo_aterro["MASSA_FLOAT_RANK"].sum()
                     
+                    # MCF médio ponderado pela massa que vai para aterro
+                    if massa_aterro_local > 0:
+                        mcf_medio = (grupo_aterro["MASSA_FLOAT_RANK"] * grupo_aterro["MCF"]).sum() / massa_aterro_local
+                    else:
+                        mcf_medio = 0.8  # fallback
+                    
+                    # ---- Cálculo das emissões ----
                     receita_anual = 0.0
                     if massa_aterro_local > 0:
                         df_mun_caract = df_clean[df_clean[COL_MUNICIPIO] == mun]
-                        doc_pond, k_pond = calcular_doc_k_ponderado(df_mun_caract)
+                        doc_pond, docf_pond, k_pond = calcular_doc_k_ponderado(df_mun_caract)
                         
-                        co2eq_aterro = calcular_co2eq_aterro_20anos(massa_aterro_local, 0.8, k_pond, doc_pond)
+                        co2eq_aterro = calcular_co2eq_aterro_20anos(massa_aterro_local, mcf_medio, k_pond, doc_pond, docf_pond)
                         co2eq_compostagem = calcular_co2eq_compostagem_UNFCCC(massa_aterro_local)
                         evitado_20anos = co2eq_aterro - co2eq_compostagem
                         receita_anual = (evitado_20anos / ANOS_PROJECAO) * preco * cambio
@@ -666,6 +734,7 @@ with tab_tradicional:
                 - **Baseline (aterro)**: alinhado à UNFCCC A6.4-AMT-003 (Application B) – CH₄ apenas, φ=0.85, OX=0.383, GWP_CH4=28.
                 - **Cenário de compostagem**: UNFCCC TOOL13 / AMS-III.F – CH₄=0.002, N₂O=0.0002, GWP_CH4=28, GWP_N2O=265.
                 - **DOC e k**: calculados dinamicamente a partir da caracterização dos resíduos do SNIS (quando disponível).
+                - **MCF**: ponderado pelos diferentes destinos (aterro sanitário, controlado, lixão) de acordo com a Tabela 8 do anexo.
                 - **% da massa total**: percentual da massa total de RSU do município que é composta por orgânicos da coleta seletiva.
                 - Receita potencial anual considerando o preço atual do carbono.
                 """)
@@ -1060,7 +1129,7 @@ with tab_ia:
                         st.error(f"Erro na projeção: {e}")
     
     # =========================================================
-    # SEÇÃO 2: SIMULAÇÃO DE CENÁRIOS DE COMPOSTAGEM
+    # SEÇÃO 2: SIMULAÇÃO DE CENÁRIOS DE COMPOSTAGEM (MODIFICADA)
     # =========================================================
     st.markdown("---")
     st.subheader("💰 Simulador: Quanto o município (ou o Brasil) pode ganhar com créditos de carbono?")
@@ -1091,6 +1160,9 @@ with tab_ia:
         if massa_aterro_atual <= 0:
             st.warning("Esta seleção não envia resíduos orgânicos para aterro (já utiliza compostagem ou reciclagem total).")
         else:
+            # --- MCF médio ponderado para a simulação ---
+            mcf_medio = (df_org_aterro['MASSA_COLETADA'] * df_org_aterro['MCF']).sum() / massa_aterro_atual if massa_aterro_atual > 0 else 0.8
+            
             col1, col2 = st.columns(2)
             with col1:
                 taxa_crescimento = st.slider("Taxa anual de aumento da compostagem (%)", 5, 30, 15, 1) / 100
@@ -1101,8 +1173,8 @@ with tab_ia:
             if st.button("🚀 Executar Simulação de Cenários"):
                 with st.spinner("Calculando projeções..."):
                     try:
-                        doc_pond, k_pond = calcular_doc_k_ponderado(df_mun_sim)
-                        co2_aterro = calcular_co2eq_aterro_20anos(massa_aterro_atual, 0.8, k_pond, doc_pond)
+                        doc_pond, docf_pond, k_pond = calcular_doc_k_ponderado(df_mun_sim)
+                        co2_aterro = calcular_co2eq_aterro_20anos(massa_aterro_atual, mcf_medio, k_pond, doc_pond, docf_pond)
                         co2_compostagem = calcular_co2eq_compostagem_UNFCCC(massa_aterro_atual)
                         co2_evitado_por_t = (co2_aterro - co2_compostagem) / massa_aterro_atual if massa_aterro_atual > 0 else 0
                         
@@ -1145,8 +1217,10 @@ with tab_ia:
                                 st.markdown(f"""
                                 **📌 Dados de entrada:**
                                 - Massa de orgânicos que vai para aterro atualmente: **{formatar_br(massa_aterro_atual, auto_precision=False, casas_override=0)} t/ano**
+                                - **MCF médio ponderado:** {formatar_br(mcf_medio, auto_precision=False, casas_override=2)}
                                 - **Taxa de decaimento (k) utilizada:** {formatar_br(k_pond, auto_precision=False, casas_override=3)} ano⁻¹
                                 - **DOC utilizado:** {formatar_br(doc_pond, auto_precision=False, casas_override=3)}
+                                - **DOC_f utilizado (Tabela 7):** {formatar_br(docf_pond, auto_precision=False, casas_override=3)}
                                 - Coeficiente de emissões do aterro por tonelada: **{formatar_br(co2_aterro / massa_aterro_atual if massa_aterro_atual > 0 else 0, auto_precision=False, casas_override=2)} tCO₂e/t**
                                 - Coeficiente de emissões da compostagem por tonelada: **{formatar_br(co2_compostagem / massa_aterro_atual if massa_aterro_atual > 0 else 0, auto_precision=False, casas_override=2)} tCO₂e/t**
                                 - Emissões evitadas por tonelada desviada: **{formatar_br(co2_evitado_por_t, auto_precision=False, casas_override=2)} tCO₂e/t**
@@ -1269,8 +1343,8 @@ with tab_ia:
         st.markdown("---")
         st.subheader("📌 Cenário 1 – Situação Atual (com percentual real de compostagem)")
 
-        doc_medio, k_medio = DOC_PADRAO, K_PADRAO
-        co2_aterro_por_t = calcular_co2eq_aterro_20anos(1, 0.8, k_medio, doc_medio)
+        doc_medio, docf_medio, k_medio = DOC_PADRAO, 0.5, K_PADRAO  # fallback
+        co2_aterro_por_t = calcular_co2eq_aterro_20anos(1, 0.8, k_medio, doc_medio, docf_medio)
         co2_compost_por_t = calcular_co2eq_compostagem_UNFCCC(1)
         co2_evitado_por_t = co2_aterro_por_t - co2_compost_por_t
 
@@ -1583,8 +1657,8 @@ with tab_ia:
     massa_adicional_realista = massa_sem_seletiva * (pct_25 / 100) if pct_25 > 0 else 0
     massa_adicional_otimista = massa_sem_seletiva * (pct_media / 100) if pct_media > 0 else 0
 
-    doc_medio, k_medio = DOC_PADRAO, K_PADRAO
-    co2_aterro_por_t = calcular_co2eq_aterro_20anos(1, 0.8, k_medio, doc_medio)
+    doc_medio, docf_medio, k_medio = DOC_PADRAO, 0.5, K_PADRAO
+    co2_aterro_por_t = calcular_co2eq_aterro_20anos(1, 0.8, k_medio, doc_medio, docf_medio)
     co2_compost_por_t = calcular_co2eq_compostagem_UNFCCC(1)
     co2_evitado_por_t = co2_aterro_por_t - co2_compost_por_t
 
