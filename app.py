@@ -431,7 +431,7 @@ df = df.rename(columns={
     COL_MUNICIPIO: "MUNICÍPIO",
     COL_TIPO_COLETA: "TIPO_COLETA_EXECUTADA",
     COL_MASSA: "MASSA_COLETADA",
-    COL_UF: "UF"  # <--- ADICIONADO PARA PADRONIZAR
+    COL_UF: "UF"
 })
 
 # Atualiza as variáveis com os novos nomes
@@ -1828,7 +1828,7 @@ with tab_diagnostico:
         col4.metric("⚠️ Municípios com Lixão", num_lixoes)
         
         # --------------------------------------------
-        # GRÁFICO 1: TOP 20 EMISSORES
+        # GRÁFICO 1: TOP 20 EMISSORES (CORRIGIDO)
         # --------------------------------------------
         st.markdown("---")
         st.subheader("🏆 Top 20 Municípios que mais Emitem Metano")
@@ -1847,7 +1847,11 @@ with tab_diagnostico:
         )
         ax.set_xlabel('Emissão Bruta (tCO₂e / ano)')
         ax.set_title('Ranking de Emissões de Metano por Município')
-        ax.xaxis.set_major_formatter(FuncFormatter(formatar_eixo_abreviado))
+        
+        # ---- FORMATAÇÃO BR (vírgula decimal, ponto milhar, 2 casas) ----
+        def formatar_eixo_br(x, pos):
+            return formatar_br(x, auto_precision=False, casas_override=2)
+        ax.xaxis.set_major_formatter(FuncFormatter(formatar_eixo_br))
         
         from matplotlib.patches import Patch
         legend_elements = [
