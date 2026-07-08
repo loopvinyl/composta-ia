@@ -237,49 +237,43 @@ def calcular_doc_k_ponderado(df_municipio):
     return doc_pond, docf_pond, k_pond
 
 # =========================================================
-# FUNÇÕES DE CÁLCULO – ATERRO (BASELINE UNFCCC)
+# FUNÇÃO DE CÁLCULO – ATERRO (BASELINE UNFCCC) - MODELO ANUAL (EQUAÇÃO 1)
 # =========================================================
-def construir_lotes_diarios(massa_total_ano_kg, dias_entrada=365, dias_projecao=DIAS_PROJECAO):
-    entrada = np.zeros(dias_projecao, dtype=float)
-    if dias_entrada > 0:
-        massa_diaria = massa_total_ano_kg / dias_entrada
-        entrada[:dias_entrada] = massa_diaria
-    return entrada
-
-def calcular_emissoes_aterro_diario(massa_total_ano_kg, mcf, k_ano, doc_pond, docf_pond,
-                                    phi=PHI_APPLICATION_B, ox=OX_SOIL_COVER,
-                                    dias_projecao=DIAS_PROJECAO, dias_entrada=365):
-    """
-    Retorna arrays diários de CH4 (kg) e CO2e (t) para um ano de entrada.
-    """
-    if massa_total_ano_kg <= 0 or mcf <= 0:
-        return np.zeros(dias_projecao), np.zeros(dias_projecao)
-
-    ch4_pot_por_kg = (doc_pond * docf_pond * mcf * F_METHANE_FRACTION * (16/12) *
-                      (1 - ox) * phi)
-
-    entrada = construir_lotes_diarios(massa_total_ano_kg, dias_entrada, dias_projecao)
-    t = np.arange(1, dias_projecao + 1, dtype=float)
-    kernel_ch4 = np.exp(-k_ano * (t - 1) / 365.0) - np.exp(-k_ano * t / 365.0)
-    kernel_ch4 = np.maximum(kernel_ch4, 0)
-
-    ch4_diario_kg = np.convolve(entrada, kernel_ch4, mode='full')[:dias_projecao] * ch4_pot_por_kg
-    co2eq_diario_t = (ch4_diario_kg * GWP_CH4) / 1000.0
-    return ch4_diario_kg, co2eq_diario_t
-
 def calcular_co2eq_aterro_20anos(massa_t_ano, mcf, k_ano, doc_pond, docf_pond):
     """
     Calcula as emissões acumuladas em 20 anos (tCO2e) para uma massa anual de resíduos
-    enviada a um aterro, utilizando o modelo FOD da UNFCCC.
-    Agora com docf_pond baseado na Tabela 7 do anexo.
+    enviada a um aterro, utilizando o modelo FOD anual da UNFCCC (Equação 1 da A6.4-AMT-003).
+    
+    A Equação (1) da norma é:
+    BE_CH4 = φ * (1-f) * GWP_CH4 * (1-OX) * 16/12 * F * MCF * Σ_x Σ_j [W_j,x * DOC_f,j * DOC_j * e^(-k_j*(y-x)) * (1 - e^(-k_j))]
+    
+    Para um único ano de depósito (x=1) e somando y de 1 a 20 anos, a série geométrica se simplifica para:
+    Total = W * DOC * DOC_f * MCF * F * 16/12 * (1-OX) * φ * GWP_CH4 * (1 - e^(-k*20))
+    
+    Esta implementação é 100% alinhada à versão 01.0 do tool (2025).
     """
     if massa_t_ano <= 0 or mcf <= 0:
         return 0.0
 
     massa_kg = massa_t_ano * 1000
-    _, co2eq_dia = calcular_emissoes_aterro_diario(massa_kg, mcf, k_ano, doc_pond, docf_pond)
-    return co2eq_dia.sum()
+    
+    # Potencial de geração de CH4 por kg de resíduo (constante do modelo)
+    ch4_pot_por_kg = (doc_pond * docf_pond * mcf * F_METHANE_FRACTION * (16/12) *
+                      (1 - OX_SOIL_COVER) * PHI_APPLICATION_B)
+    
+    # Fração total do resíduo que se decompõe ao longo de 20 anos (somatório da série)
+    frac_decomposta_20_anos = 1 - np.exp(-k_ano * ANOS_PROJECAO)
+    
+    # Total de CH4 gerado em 20 anos (kg)
+    ch4_total_kg = massa_kg * ch4_pot_por_kg * frac_decomposta_20_anos
+    
+    # Converte para tCO2e
+    co2eq_total_t = (ch4_total_kg * GWP_CH4) / 1000.0
+    return co2eq_total_t
 
+# =========================================================
+# FUNÇÃO DE CÁLCULO – COMPOSTAGEM (UNFCCC TOOL13 / AMS-III.F)
+# =========================================================
 def calcular_co2eq_compostagem_UNFCCC(massa_t_ano):
     if massa_t_ano <= 0:
         return 0.0
@@ -1699,7 +1693,7 @@ with tab_diagnostico:
     2. **Mix de resíduos** (composição orgânica, representada pelo DOC e taxa de decaimento k);
     3. **Destino final e gestão** (MCF – diferencia aterros sanitários, controlados e lixões).
     
-    O cálculo segue a **metodologia UNFCCC A6.4-AMT-003** aplicada ao **cenário atual (baseline)** – ou seja, as emissões que ocorreriam se nada fosse alterado.
+    O cálculo segue a **metodologia UNFCCC A6.4-AMT-003 (modelo anual, Equação 1)**, projetando a geração de metano ao longo de **20 anos** a partir da massa de resíduos depositada no ano de referência. O valor exibido é a **média anual** desse total acumulado em 20 anos.
     
     **Use este diagnóstico para priorizar políticas públicas:** municípios com alta emissão e alta intensidade são os que mais se beneficiam com a implantação de compostagem ou melhoria da gestão de aterros.
     """)
@@ -1744,6 +1738,7 @@ with tab_diagnostico:
                 mcf_medio = (df_aterro['MASSA_FLOAT'] * df_aterro['MCF']).sum() / massa_total_aterro
                 
                 # 3. Cálculo da emissão bruta (em 20 anos, convertida para anual)
+                # Usa a função atualizada com o modelo anual (Equação 1 da UNFCCC)
                 co2eq_20anos = calcular_co2eq_aterro_20anos(
                     massa_total_aterro, 
                     mcf_medio, 
@@ -1826,7 +1821,11 @@ with tab_diagnostico:
         num_lixoes = df_filtrado[df_filtrado['Gestao_Predominante'] == 'Lixão/Precário'].shape[0]
         
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("🌍 Emissão Total (ano)", f"{formatar_br(total_emissoes, auto_precision=False, casas_override=0)} tCO₂e")
+        col1.metric(
+            "🌍 Emissão Média Anual (20 anos)", 
+            f"{formatar_br(total_emissoes, auto_precision=False, casas_override=0)} tCO₂e",
+            help="Média anual do total de metano acumulado que será gerado ao longo de 20 anos a partir da massa depositada no ano de referência."
+        )
         col2.metric("⚖️ Massa em Aterro", f"{formatar_br(total_massa, auto_precision=False, casas_override=0)} t")
         col3.metric("📊 Intensidade Média", f"{formatar_br(media_intensidade, auto_precision=False, casas_override=2)} tCO₂e/t")
         col4.metric("⚠️ Municípios com Lixão", num_lixoes)
@@ -1849,7 +1848,7 @@ with tab_diagnostico:
             top20['Emissao_Bruta_tCO2e_ano'],
             color=top20['Cor']
         )
-        ax.set_xlabel('Emissão Bruta (tCO₂e / ano)')
+        ax.set_xlabel('Emissão Média Anual (tCO₂e / ano)')
         ax.set_title('Ranking de Emissões de Metano por Município')
         
         # ---- FORMATAÇÃO BR (vírgula decimal, ponto milhar, 2 casas) ----
@@ -1972,7 +1971,7 @@ with tab_diagnostico:
             'MCF_Medio': 'MCF médio',
             'DOC_Medio': 'DOC médio',
             'Intensidade_tCO2e_por_t': 'Intensidade (tCO₂e/t)',
-            'Emissao_Bruta_tCO2e_ano': 'Emissão Bruta (tCO₂e/ano)',
+            'Emissao_Bruta_tCO2e_ano': 'Emissão Média Anual (tCO₂e/ano)',
             'Emissao_per_capita_kgCO2e': 'Emissão per capita (kgCO₂e)'
         })
         
@@ -1984,9 +1983,9 @@ with tab_diagnostico:
         st.markdown("---")
         st.caption("""
         **Metodologia:** UNFCCC A6.4-AMT-003 (Application B) – Baseline de aterro.  
-        - Emissão Bruta = emissões de metano (CH₄) do aterro em 20 anos, convertida para anual.  
-        - Intensidade = emissão por tonelada de resíduo depositado. Quanto menor, melhor a gestão do aterro.  
-        - MCF = 1,0 (Sanitário), 0,4-0,8 (Controlado), <0,4 (Lixão/Precário) – conforme Tabela 8 da norma.
+        - **Emissão Média Anual**: média aritmética do total de emissões de metano (CH₄) projetado para os 20 anos seguintes ao depósito do resíduo do ano de referência (modelo anual, Equação 1).  
+        - **Intensidade**: emissão média anual por tonelada de resíduo depositado. Quanto menor, melhor a gestão do aterro.  
+        - **MCF**: 1,0 (Sanitário), 0,4-0,8 (Controlado), <0,4 (Lixão/Precário) – conforme Tabela 8 da norma.
         - DOC/k calculados dinamicamente pela caracterização do resíduo no SNIS (colunas GTR1501 a GTR1507).
         """)
 
