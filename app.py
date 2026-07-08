@@ -1831,12 +1831,15 @@ with tab_diagnostico:
         col4.metric("⚠️ Municípios com Lixão", num_lixoes)
         
         # --------------------------------------------
-        # GRÁFICO 1: TOP 20 EMISSORES
+        # GRÁFICO 1: TOP 20 EMISSORES (AGORA ORDENADO CORRETAMENTE)
         # --------------------------------------------
         st.markdown("---")
         st.subheader("🏆 Top 20 Municípios que mais Emitem Metano")
         
+        # Seleciona os 20 maiores e ordena decrescente (do maior para o menor)
         top20 = df_filtrado.nlargest(20, 'Emissao_Bruta_tCO2e_ano')
+        # Garantia extra de ordenação (decrescente) para que o maior fique no topo do gráfico
+        top20 = top20.sort_values('Emissao_Bruta_tCO2e_ano', ascending=False)
         
         # Mapeamento de cores para gestão
         cor_map = {'Sanitário': '#2ecc71', 'Controlado': '#f39c12', 'Lixão/Precário': '#e74c3c'}
@@ -1863,6 +1866,9 @@ with tab_diagnostico:
             Patch(facecolor='#e74c3c', label='Lixão/Precário (MCF<0.4)')
         ]
         ax.legend(handles=legend_elements, loc='lower right')
+        
+        # Inverte a ordem do eixo Y para garantir que o primeiro item da lista (maior) fique no TOPO
+        ax.invert_yaxis()
         
         plt.tight_layout()
         st.pyplot(fig)
