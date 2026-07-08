@@ -408,6 +408,10 @@ def load_data(ano):
     # 4. Faz o merge com a tabela de coleta usando a chave 'Cod_IBGE'
     df = pd.merge(df_coleta, df_caract_filtrado, on='Cod_IBGE', how='left')
     
+    # 5. Renomeia a coluna de população (DFE0001) para padronização e permitir que o script a encontre
+    if 'DFE0001' in df.columns:
+        df.rename(columns={'DFE0001': 'POPULACAO_TOTAL'}, inplace=True)
+    
     return df
 
 df = load_data(ano_selecionado)
@@ -1749,14 +1753,9 @@ with tab_diagnostico:
                 emissao_anual = co2eq_20anos / 20.0
                 
                 # 4. Emissão per capita (tenta encontrar coluna de população)
-                pop_col = None
-                for col in df_mun.columns:
-                    if 'POP' in col.upper() or 'HABITANTE' in col.upper():
-                        pop_col = col
-                        break
-                
-                if pop_col:
-                    pop = pd.to_numeric(df_mun[pop_col].iloc[0], errors='coerce')
+                # Agora a coluna 'POPULACAO_TOTAL' existe graças ao renomeio em load_data
+                if 'POPULACAO_TOTAL' in df_mun.columns:
+                    pop = pd.to_numeric(df_mun['POPULACAO_TOTAL'].iloc[0], errors='coerce')
                 else:
                     pop = 0
                 
@@ -1876,7 +1875,7 @@ with tab_diagnostico:
         st.caption("🔴 Vermelho = Lixões ou aterros precários | 🟡 Amarelo = Controlado | 🟢 Verde = Sanitário (bem gerenciado)")
         
         # --------------------------------------------
-        # GRÁFICO 2: TOP 20 EMISSORES PER CAPITA (NOVO)
+        # GRÁFICO 2: TOP 20 EMISSORES PER CAPITA
         # --------------------------------------------
         st.markdown("---")
         st.subheader("🏆 Top 20 Municípios com Maior Emissão de Metano por Habitante")
@@ -2049,32 +2048,4 @@ with tab_diagnostico:
         - **Emissão Média Anual**: média aritmética do total de emissões de metano (CH₄) projetado para os 20 anos seguintes ao depósito do resíduo do ano de referência (modelo anual, Equação 1).  
         - **Emissão per capita**: emissão média anual dividida pela população do município (kgCO₂e/hab/ano).  
         - **Intensidade**: emissão média anual por tonelada de resíduo depositado. Quanto menor, melhor a gestão do aterro.  
-        - **MCF**: 1,0 (Sanitário), 0,4-0,8 (Controlado), <0,4 (Lixão/Precário) – conforme Tabela 8 da norma.
-        - DOC/k calculados dinamicamente pela caracterização do resíduo no SNIS (colunas GTR1501 a GTR1507).
-        """)
-
-# =========================================================
-# AUTORIA E USO
-# =========================================================
-st.markdown("---")
-st.subheader("📬 Autoria e uso")
-
-st.markdown("""
-Este aplicativo foi desenvolvido para apoiar a gestão de resíduos sólidos, 
-mapear oportunidades de compostagem e auxiliar municípios a se prepararem para o mercado de créditos de carbono.
-
-**Potencial de uso:**  
-- Mapeamento de municípios com coleta seletiva de orgânicos.  
-- Estimativa de emissões evitadas com compostagem.  
-- Projeção de receitas com créditos de carbono (metodologia UNFCCC).  
-- Identificação de prioridades para expansão da coleta seletiva.
-""")
-
-# =========================================================
-# RODAPÉ GERAL DO APP
-# =========================================================
-st.markdown("---")
-st.caption("""
-**Composta.IA** | Ferramenta de apoio à gestão de resíduos sólidos e créditos de carbono  
-Dados: SNIS (2023/2024) | Metodologia: UNFCCC A6.4-AMT-003 (2025) + TOOL13 (AMS-III.F) | IPCC AR5 (GWP-100)
-""")
+        - **MCF**: 1,0 (Sanitário), 0
