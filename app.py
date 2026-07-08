@@ -1692,16 +1692,12 @@ with tab_ia:
 with tab_diagnostico:
     st.header("🔥 Diagnóstico de Emissões de Metano (Baseline)")
     st.markdown("""
-    Esta análise revela **quanto cada município emite com base nos dados mais recentes do SNIS** (ano selecionado), 
-    considerando **três fatores determinantes**:
+    Esta análise revela **quanto cada município está emitindo HOJE** (sem considerar créditos).
+    O cálculo usa a **mesma metodologia UNFCCC A6.4-AMT-003** aplicada ao **cenário atual (baseline)**,
+    considerando a massa que realmente vai para aterros, o tipo de gestão (MCF) e a composição do resíduo (DOC/k).
     
-    1. **Quantidade de resíduos** enviada a aterros (massa real declarada);
-    2. **Mix de resíduos** (composição orgânica, representada pelo DOC e taxa de decaimento k);
-    3. **Destino final e gestão** (MCF – diferencia aterros sanitários, controlados e lixões).
-    
-    O cálculo segue a **metodologia UNFCCC A6.4-AMT-003** aplicada ao **cenário atual (baseline)** – ou seja, as emissões que ocorreriam se nada fosse alterado.
-    
-    **Use este diagnóstico para priorizar políticas públicas:** municípios com alta emissão e alta intensidade são os que mais se beneficiam com a implantação de compostagem ou melhoria da gestão de aterros.
+    **Use este diagnóstico para priorizar políticas públicas:** municípios com alta emissão e alta intensidade 
+    são os que mais se beneficiam com a implantação de compostagem ou melhoria do aterro.
     """)
     
     # --------------------------------------------
@@ -1832,7 +1828,7 @@ with tab_diagnostico:
         col4.metric("⚠️ Municípios com Lixão", num_lixoes)
         
         # --------------------------------------------
-        # GRÁFICO 1: TOP 20 EMISSORES
+        # GRÁFICO 1: TOP 20 EMISSORES (CORRIGIDO)
         # --------------------------------------------
         st.markdown("---")
         st.subheader("🏆 Top 20 Municípios que mais Emitem Metano")
