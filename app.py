@@ -1831,14 +1831,13 @@ with tab_diagnostico:
         col4.metric("⚠️ Municípios com Lixão", num_lixoes)
         
         # --------------------------------------------
-        # GRÁFICO 1: TOP 20 EMISSORES (AGORA ORDENADO CORRETAMENTE)
+        # GRÁFICO 1: TOP 20 EMISSORES (EMISSÃO ABSOLUTA)
         # --------------------------------------------
         st.markdown("---")
-        st.subheader("🏆 Top 20 Municípios que mais Emitem Metano")
+        st.subheader("🏆 Top 20 Municípios que mais Emitem Metano (emissão absoluta)")
         
         # Seleciona os 20 maiores e ordena decrescente (do maior para o menor)
         top20 = df_filtrado.nlargest(20, 'Emissao_Bruta_tCO2e_ano')
-        # Garantia extra de ordenação (decrescente) para que o maior fique no topo do gráfico
         top20 = top20.sort_values('Emissao_Bruta_tCO2e_ano', ascending=False)
         
         # Mapeamento de cores para gestão
@@ -1877,7 +1876,65 @@ with tab_diagnostico:
         st.caption("🔴 Vermelho = Lixões ou aterros precários | 🟡 Amarelo = Controlado | 🟢 Verde = Sanitário (bem gerenciado)")
         
         # --------------------------------------------
-        # GRÁFICO 2: MATRIZ DE DISPERSÃO (QUADRANTES)
+        # GRÁFICO 2: TOP 20 EMISSORES PER CAPITA (NOVO)
+        # --------------------------------------------
+        st.markdown("---")
+        st.subheader("🏆 Top 20 Municípios com Maior Emissão de Metano por Habitante")
+        st.markdown("""
+        **Este ranking mostra a emissão de metano por habitante (kgCO₂e/hab/ano).**  
+        Municípios com alta emissão per capita geralmente têm:
+        - **Grande volume de resíduos** em relação à população (geração excessiva);
+        - **Destinação inadequada** (lixões ou aterros controlados, com MCF baixo);
+        - **Composição orgânica elevada** (alta fração de alimentos e podas).
+        
+        **Interpretação:** Uma cidade pequena pode aparecer no topo se sua gestão de resíduos for ineficiente. 
+        Já grandes cidades podem ter emissão per capita baixa se tiverem aterros sanitários bem gerenciados 
+        (MCF alto, captura de biogás). Este indicador ajuda a identificar **municípios onde a gestão per capita é crítica**,
+        independentemente do tamanho populacional.
+        """)
+        
+        # Filtra municípios com população > 0 para evitar divisão por zero
+        df_percapita = df_filtrado[df_filtrado['Emissao_per_capita_kgCO2e'] > 0].copy()
+        
+        if df_percapita.empty:
+            st.info("ℹ️ Não há dados de população disponível para calcular a emissão per capita.")
+        else:
+            top20_percapita = df_percapita.nlargest(20, 'Emissao_per_capita_kgCO2e')
+            top20_percapita = top20_percapita.sort_values('Emissao_per_capita_kgCO2e', ascending=False)
+            
+            # Mapeamento de cores
+            top20_percapita['Cor'] = top20_percapita['Gestao_Predominante'].map(cor_map)
+            
+            fig2, ax2 = plt.subplots(figsize=(12, 8))
+            bars = ax2.barh(
+                top20_percapita['MUNICÍPIO'] + " (" + top20_percapita['UF'] + ")",
+                top20_percapita['Emissao_per_capita_kgCO2e'],
+                color=top20_percapita['Cor']
+            )
+            ax2.set_xlabel('Emissão per capita (kgCO₂e / habitante / ano)')
+            ax2.set_title('Ranking de Emissões de Metano por Habitante')
+            
+            def formatar_eixo_br_percapita(x, pos):
+                return formatar_br(x, auto_precision=False, casas_override=2)
+            ax2.xaxis.set_major_formatter(FuncFormatter(formatar_eixo_br_percapita))
+            
+            from matplotlib.patches import Patch
+            legend_elements = [
+                Patch(facecolor='#2ecc71', label='Aterro Sanitário (MCF≥0.8)'),
+                Patch(facecolor='#f39c12', label='Aterro Controlado (MCF 0.4-0.8)'),
+                Patch(facecolor='#e74c3c', label='Lixão/Precário (MCF<0.4)')
+            ]
+            ax2.legend(handles=legend_elements, loc='lower right')
+            
+            ax2.invert_yaxis()
+            plt.tight_layout()
+            st.pyplot(fig2)
+            plt.close(fig2)
+            
+            st.caption("🔴 Vermelho = Lixões ou aterros precários | 🟡 Amarelo = Controlado | 🟢 Verde = Sanitário (bem gerenciado)")
+        
+        # --------------------------------------------
+        # GRÁFICO 3: MATRIZ DE DECISÃO (QUADRANTES)
         # --------------------------------------------
         st.markdown("---")
         st.subheader("📊 Matriz de Decisão: Massa x Intensidade")
@@ -1892,7 +1949,7 @@ with tab_diagnostico:
         med_massa = df_filtrado['Massa_Aterro_Anual_t'].median()
         med_intensidade = df_filtrado['Intensidade_tCO2e_por_t'].median()
         
-        fig2, ax2 = plt.subplots(figsize=(10, 8))
+        fig3, ax3 = plt.subplots(figsize=(10, 8))
         
         def categorizar(row):
             if row['Massa_Aterro_Anual_t'] >= med_massa and row['Intensidade_tCO2e_por_t'] >= med_intensidade:
@@ -1915,7 +1972,7 @@ with tab_diagnostico:
         
         for cat in df_filtrado['Categoria'].unique():
             subset = df_filtrado[df_filtrado['Categoria'] == cat]
-            ax2.scatter(
+            ax3.scatter(
                 subset['Massa_Aterro_Anual_t'],
                 subset['Intensidade_tCO2e_por_t'],
                 label=cat,
@@ -1924,19 +1981,19 @@ with tab_diagnostico:
                 s=50
             )
         
-        ax2.axvline(x=med_massa, color='gray', linestyle='--', alpha=0.5)
-        ax2.axhline(y=med_intensidade, color='gray', linestyle='--', alpha=0.5)
+        ax3.axvline(x=med_massa, color='gray', linestyle='--', alpha=0.5)
+        ax3.axhline(y=med_intensidade, color='gray', linestyle='--', alpha=0.5)
         
-        ax2.set_xlabel('Massa enviada ao Aterro (t/ano)')
-        ax2.set_ylabel('Intensidade de Emissão (tCO₂e / t)')
-        ax2.set_title('Matriz de Priorização de Municípios')
-        ax2.legend()
-        ax2.grid(True, linestyle=':', alpha=0.3)
-        ax2.xaxis.set_major_formatter(FuncFormatter(formatar_eixo_abreviado))
+        ax3.set_xlabel('Massa enviada ao Aterro (t/ano)')
+        ax3.set_ylabel('Intensidade de Emissão (tCO₂e / t)')
+        ax3.set_title('Matriz de Priorização de Municípios')
+        ax3.legend()
+        ax3.grid(True, linestyle=':', alpha=0.3)
+        ax3.xaxis.set_major_formatter(FuncFormatter(formatar_eixo_abreviado))
         
         plt.tight_layout()
-        st.pyplot(fig2)
-        plt.close(fig2)
+        st.pyplot(fig3)
+        plt.close(fig3)
         
         # --------------------------------------------
         # TABELA INTERATIVA
@@ -1990,6 +2047,7 @@ with tab_diagnostico:
         st.caption("""
         **Metodologia:** UNFCCC A6.4-AMT-003 (Application B) – Baseline de aterro.  
         - **Emissão Média Anual**: média aritmética do total de emissões de metano (CH₄) projetado para os 20 anos seguintes ao depósito do resíduo do ano de referência (modelo anual, Equação 1).  
+        - **Emissão per capita**: emissão média anual dividida pela população do município (kgCO₂e/hab/ano).  
         - **Intensidade**: emissão média anual por tonelada de resíduo depositado. Quanto menor, melhor a gestão do aterro.  
         - **MCF**: 1,0 (Sanitário), 0,4-0,8 (Controlado), <0,4 (Lixão/Precário) – conforme Tabela 8 da norma.
         - DOC/k calculados dinamicamente pela caracterização do resíduo no SNIS (colunas GTR1501 a GTR1507).
