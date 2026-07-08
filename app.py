@@ -562,65 +562,69 @@ with tab_tradicional:
                     help=f"Para atingir 80% da massa total, são necessários os {formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}% maiores municípios (em massa). 50% da massa está concentrada em {formatar_br(pct_municipios_50, auto_precision=False, casas_override=1)}% dos municípios."
                 )
                 
-                # --- Gráfico de Pareto (Top 20 municípios + linha acumulada) ---
-                st.markdown("#### 📉 Concentração da Massa de RSU (Pareto)")
-                st.markdown("As barras mostram os 20 maiores municípios em massa coletada. A linha vermelha mostra o percentual acumulado da massa total do Brasil.")
+                # --- GRÁFICO DE CONCENTRAÇÃO (CURVA DE LORENZ - PARETO) ---
+                st.markdown("#### 📉 Curva de Concentração da Massa de RSU (Pareto)")
+                st.markdown("""
+                **Como ler:** A linha azul mostra o percentual acumulado da massa total de RSU em função do percentual acumulado de municípios (ordenados do maior para o menor gerador). 
+                Quanto mais a curva se inclina para a esquerda, maior é a concentração. 
+                O ponto onde a linha cruza os 80% no eixo Y indica quantos % dos municípios são responsáveis por 80% de todo o lixo do Brasil.
+                """)
                 
-                # Pega os top 20 municípios em massa
-                top20_pareto = df_ordenado.head(20).copy()
+                # Cria o gráfico de linha (curva de concentração)
+                fig_conc, ax_conc = plt.subplots(figsize=(12, 7))
                 
-                fig_pareto, ax_pareto = plt.subplots(figsize=(12, 7))
+                # Calcula o percentual acumulado de municípios (para todos os municípios)
+                df_ordenado['pct_municipios'] = (np.arange(len(df_ordenado)) + 1) / len(df_ordenado) * 100
                 
-                # Barras horizontais (emissão absoluta)
-                bars = ax_pareto.barh(
-                    top20_pareto['MUNICÍPIO'],
-                    top20_pareto['MASSA_COLETADA'],
-                    color='steelblue',
-                    alpha=0.8,
-                    label='Massa coletada'
+                # Plota a curva de concentração
+                ax_conc.plot(
+                    df_ordenado['pct_municipios'], 
+                    df_ordenado['pct_acumulado'], 
+                    color='#1f77b4', 
+                    linewidth=3, 
+                    label='Concentração real da massa'
                 )
-                ax_pareto.set_xlabel('Massa Coletada (toneladas/ano)')
-                ax_pareto.set_title('Top 20 Municípios em Massa de RSU e Concentração Acumulada')
                 
-                # Eixo X em formato BR (abreviado)
-                ax_pareto.xaxis.set_major_formatter(FuncFormatter(formatar_eixo_abreviado))
+                # Linha de referência para 80% da massa (horizontal)
+                ax_conc.axhline(y=80, color='red', linestyle='--', alpha=0.8, linewidth=1.5, label='80% da massa total')
                 
-                # Cria um segundo eixo Y para a linha cumulativa
-                ax2_pareto = ax_pareto.twiny()
-                ax2_pareto.plot(
-                    top20_pareto['pct_acumulado'],
-                    top20_pareto['MUNICÍPIO'],
+                # Linha de referência vertical para o % de municípios que atinge 80%
+                ax_conc.axvline(x=pct_municipios_80, color='red', linestyle='--', alpha=0.8, linewidth=1.5)
+                
+                # Adiciona anotação destacando o ponto de cruzamento
+                ax_conc.annotate(
+                    f'{pct_municipios_80:.1f}% dos municípios\nconcentram 80% da massa',
+                    xy=(pct_municipios_80, 80),
+                    xytext=(pct_municipios_80 + 15, 60),
+                    arrowprops=dict(arrowstyle='->', color='red', lw=1.5),
+                    fontsize=11,
                     color='red',
-                    marker='o',
-                    linewidth=2,
-                    label='% acumulado da massa total'
+                    ha='left',
+                    bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='red', alpha=0.9)
                 )
-                ax2_pareto.set_xlabel('Percentual Acumulado da Massa Total (%)')
-                ax2_pareto.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'{x:.0f}%'))
                 
-                # Adiciona anotações de percentual nos pontos
-                for i, row in top20_pareto.iterrows():
-                    ax2_pareto.annotate(
-                        f"{row['pct_acumulado']:.1f}%",
-                        (row['pct_acumulado'], row['MUNICÍPIO']),
-                        textcoords="offset points",
-                        xytext=(5, 0),
-                        ha='left',
-                        fontsize=8,
-                        color='red'
-                    )
+                # Linha da curva de referência (linha de igualdade - 45 graus)
+                ax_conc.plot([0, 100], [0, 100], color='gray', linestyle=':', alpha=0.5, label='Igualdade perfeita (referência)')
                 
-                # Legendas combinadas
-                lines1, labels1 = ax_pareto.get_legend_handles_labels()
-                lines2, labels2 = ax2_pareto.get_legend_handles_labels()
-                ax_pareto.legend(lines1 + lines2, labels1 + labels2, loc='lower right')
+                # Configurações dos eixos
+                ax_conc.set_xlabel('Percentual acumulado de municípios (%)', fontsize=12)
+                ax_conc.set_ylabel('Percentual acumulado da massa total (%)', fontsize=12)
+                ax_conc.set_title(f'Concentração da Massa de RSU – Brasil ({ano_selecionado})', fontsize=14)
+                ax_conc.grid(True, linestyle=':', alpha=0.4)
+                ax_conc.legend(loc='lower right')
+                ax_conc.set_xlim(0, 100)
+                ax_conc.set_ylim(0, 100)
+                
+                # Formatação dos eixos (percentual)
+                ax_conc.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'{x:.0f}%'))
+                ax_conc.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'{x:.0f}%'))
                 
                 plt.tight_layout()
-                st.pyplot(fig_pareto)
-                plt.close(fig_pareto)
+                st.pyplot(fig_conc)
+                plt.close(fig_conc)
                 
                 st.caption(f"""
-                📌 **Interpretação:** Os {formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}% maiores municípios (em massa) concentram 80% de todo o RSU do Brasil. 
+                📌 **Interpretação:** A curva demonstra que os **{formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}% maiores municípios** (em massa) concentram **80% de todo o RSU do Brasil**. 
                 Isso significa que políticas focadas nos maiores centros urbanos têm impacto nacional significativo.
                 Média per capita: {formatar_br(media, auto_precision=False, casas_override=0)} kg/hab/ano | Mediana: {formatar_br(mediana, auto_precision=False, casas_override=0)} kg/hab/ano | Amplitude: {formatar_br(minimo, auto_precision=False, casas_override=0)} – {formatar_br(maximo, auto_precision=False, casas_override=0)} kg/hab/ano
                 """)
@@ -628,7 +632,7 @@ with tab_tradicional:
                 st.warning("Dados insuficientes para calcular estatísticas nacionais.")
     
     # =========================================================
-    # 1. 🗺️ Destinação Final (MANTIDO IDÊNTICO)
+    # 1. 🗺️ Destinação Final
     # =========================================================
     st.markdown("---")
     st.subheader(f"🗺️ Para onde o resíduo está indo? (Destinação Final, {ano_selecionado})")
@@ -694,7 +698,7 @@ with tab_tradicional:
     st.caption("📌 Os dados refletem fielmente os registros do SNIS. A classificação dos destinos é feita pela IA.")
 
     # =========================================================
-    # 2. 📊 Distribuição por tipo de destino (Brasil) - MANTIDO IDÊNTICO
+    # 2. 📊 Distribuição por tipo de destino (Brasil)
     # =========================================================
     if municipio == municipios[0]:
         st.markdown("---")
@@ -736,7 +740,7 @@ with tab_tradicional:
         st.caption("Nota: a soma das massas pode exceder o total coletado devido a duplicidades nas rotas (ex.: transbordo e destino final).")
 
         # =========================================================
-        # 3. 🏳️ Coleta de RSU pelos estados - MANTIDO IDÊNTICO
+        # 3. 🏳️ Coleta de RSU pelos estados
         # =========================================================
         st.markdown("---")
         st.subheader(f"🏳️ Coleta de RSU pelos estados do Brasil ({ano_selecionado})")
@@ -777,7 +781,7 @@ with tab_tradicional:
             plt.close(fig)
 
     # =========================================================
-    # 4. 🏆 RANKING MUNICIPAL - MANTIDO IDÊNTICO
+    # 4. 🏆 RANKING MUNICIPAL
     # =========================================================
     if municipio == municipios[0]:
         st.markdown("---")
@@ -823,7 +827,6 @@ with tab_tradicional:
                     massa_total_local = grupo["MASSA_FLOAT_RANK"].sum()
                     destinos = ", ".join(sorted(grupo[COL_DESTINO].unique()))
                     
-                    # ---- Cálculo do MCF ponderado para este município ----
                     grupo["MCF"] = grupo[COL_DESTINO].apply(lambda x: determinar_mcf_por_destino(x, 'organico'))
                     grupo_aterro = grupo[grupo["MCF"] > 0]
                     massa_aterro_local = grupo_aterro["MASSA_FLOAT_RANK"].sum()
@@ -879,7 +882,7 @@ with tab_tradicional:
                 """)
 
     # =========================================================
-    # 5. ♻️ ORGÂNICOS - MANTIDO IDÊNTICO
+    # 5. ♻️ ORGÂNICOS
     # =========================================================
     st.markdown("---")
     st.subheader(f"♻️ Destinação da Coleta Seletiva de Resíduos Orgânicos ({ano_selecionado})")
@@ -966,7 +969,7 @@ with tab_tradicional:
         st.info("ℹ️ Sem registros de coleta seletiva de orgânicos.")
 
     # =========================================================
-    # 6. 🌳 PODAS E GALHADAS - MANTIDO IDÊNTICO
+    # 6. 🌳 PODAS E GALHADAS
     # =========================================================
     st.markdown("---")
     st.subheader(f"🌳 Destinação da coleta de podas e galhadas ({ano_selecionado})")
@@ -2177,7 +2180,7 @@ with tab_diagnostico:
         st.dataframe(tabela_diagnostico, use_container_width=True, height=500)
         
         # --------------------------------------------
-        # RODAPÉ DA ABA
+        # RODAPÉ DA ABA DIAGNÓSTICO
         # --------------------------------------------
         st.markdown("---")
         st.caption("""
