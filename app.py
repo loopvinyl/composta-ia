@@ -1882,7 +1882,6 @@ with tab_diagnostico:
                 mcf_medio = (df_aterro['MASSA_FLOAT'] * df_aterro['MCF']).sum() / massa_total_aterro
                 
                 # 3. Cálculo da emissão bruta (em 20 anos, convertida para anual)
-                # Usa a função atualizada com o modelo anual (Equação 1 da UNFCCC)
                 co2eq_20anos = calcular_co2eq_aterro_20anos(
                     massa_total_aterro, 
                     mcf_medio, 
@@ -1892,8 +1891,7 @@ with tab_diagnostico:
                 )
                 emissao_anual = co2eq_20anos / 20.0
                 
-                # 4. Emissão per capita (tenta encontrar coluna de população)
-                # Agora a coluna 'POPULACAO_TOTAL' existe graças ao renomeio em load_data
+                # 4. Emissão per capita
                 if 'POPULACAO_TOTAL' in df_mun.columns:
                     pop = pd.to_numeric(df_mun['POPULACAO_TOTAL'].iloc[0], errors='coerce')
                 else:
@@ -1908,7 +1906,7 @@ with tab_diagnostico:
                 # 6. UF do município
                 uf = df_mun['UF'].iloc[0] if 'UF' in df_mun.columns else 'N/A'
                 
-                # 7. Tipo de gestão predominante (para colorir o gráfico)
+                # 7. Tipo de gestão predominante
                 if mcf_medio >= 0.8:
                     gestao_cat = "Sanitário"
                 elif mcf_medio >= 0.4:
@@ -1969,17 +1967,110 @@ with tab_diagnostico:
         col3.metric("📊 Intensidade Média", f"{formatar_br(media_intensidade, auto_precision=False, casas_override=2)} tCO₂e/t")
         col4.metric("⚠️ Municípios com Lixão", num_lixoes)
         
+        # =========================================================
+        # NOVO: GRÁFICO DE CONCENTRAÇÃO DAS EMISSÕES (PARETO)
+        # =========================================================
+        st.markdown("---")
+        st.markdown("#### 📉 Curva de Concentração das Emissões de Metano (Pareto)")
+        st.markdown("""
+        **Como ler:** A linha azul mostra o percentual acumulado das emissões totais de metano (tCO₂e/ano) em função do percentual acumulado de municípios (ordenados do maior para o menor emissor). 
+        Quanto mais a curva se inclina para a esquerda, maior é a concentração. 
+        O ponto onde a linha cruza os 80% no eixo Y indica quantos % dos municípios são responsáveis por 80% de todas as emissões de metano do Brasil.
+        """)
+        
+        # Ordena os municípios por emissão decrescente
+        df_emissoes_ordenado = df_filtrado.sort_values('Emissao_Bruta_tCO2e_ano', ascending=False).copy()
+        df_emissoes_ordenado['emissao_acumulada'] = df_emissoes_ordenado['Emissao_Bruta_tCO2e_ano'].cumsum()
+        total_emissoes = df_emissoes_ordenado['Emissao_Bruta_tCO2e_ano'].sum()
+        df_emissoes_ordenado['pct_acumulado_emissao'] = (df_emissoes_ordenado['emissao_acumulada'] / total_emissoes) * 100
+        
+        # Encontra quantos % dos municípios atingem 80% das emissões
+        df_ate_80_emissoes = df_emissoes_ordenado[df_emissoes_ordenado['pct_acumulado_emissao'] <= 80]
+        pct_municipios_80_emissoes = (len(df_ate_80_emissoes) / len(df_emissoes_ordenado)) * 100
+        
+        # Encontra quantos % dos municípios atingem 50% das emissões
+        df_ate_50_emissoes = df_emissoes_ordenado[df_emissoes_ordenado['pct_acumulado_emissao'] <= 50]
+        pct_municipios_50_emissoes = (len(df_ate_50_emissoes) / len(df_emissoes_ordenado)) * 100
+        
+        # Cria o gráfico de linha
+        fig_emissoes, ax_emissoes = plt.subplots(figsize=(12, 7))
+        
+        # Calcula o percentual acumulado de municípios
+        df_emissoes_ordenado['pct_municipios_emissoes'] = (np.arange(len(df_emissoes_ordenado)) + 1) / len(df_emissoes_ordenado) * 100
+        
+        # Plota a curva de concentração das emissões
+        ax_emissoes.plot(
+            df_emissoes_ordenado['pct_municipios_emissoes'], 
+            df_emissoes_ordenado['pct_acumulado_emissao'], 
+            color='#1f77b4', 
+            linewidth=3, 
+            label='Concentração real das emissões'
+        )
+        
+        # Linha de referência para 80% das emissões (horizontal)
+        ax_emissoes.axhline(y=80, color='red', linestyle='--', alpha=0.8, linewidth=1.5, label='80% das emissões totais')
+        
+        # Linha de referência vertical para o % de municípios que atinge 80%
+        ax_emissoes.axvline(x=pct_municipios_80_emissoes, color='red', linestyle='--', alpha=0.8, linewidth=1.5)
+        
+        # Adiciona anotação destacando o ponto de cruzamento (80%)
+        ax_emissoes.annotate(
+            f'{pct_municipios_80_emissoes:.1f}% dos municípios\nconcentram 80% das emissões',
+            xy=(pct_municipios_80_emissoes, 80),
+            xytext=(pct_municipios_80_emissoes + 15, 60),
+            arrowprops=dict(arrowstyle='->', color='red', lw=1.5),
+            fontsize=11,
+            color='red',
+            ha='left',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='red', alpha=0.9)
+        )
+        
+        # Adiciona anotação para 50% (opcional, mas consistente com o gráfico da massa)
+        ax_emissoes.annotate(
+            f'{pct_municipios_50_emissoes:.1f}% dos municípios\nconcentram 50% das emissões',
+            xy=(pct_municipios_50_emissoes, 50),
+            xytext=(pct_municipios_50_emissoes + 15, 35),
+            arrowprops=dict(arrowstyle='->', color='orange', lw=1.5),
+            fontsize=10,
+            color='orange',
+            ha='left',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='orange', alpha=0.9)
+        )
+        
+        # Linha da curva de referência (igualdade perfeita)
+        ax_emissoes.plot([0, 100], [0, 100], color='gray', linestyle=':', alpha=0.5, label='Igualdade perfeita (referência)')
+        
+        # Configurações dos eixos
+        ax_emissoes.set_xlabel('Percentual acumulado de municípios (%)', fontsize=12)
+        ax_emissoes.set_ylabel('Percentual acumulado das emissões (%)', fontsize=12)
+        ax_emissoes.set_title(f'Concentração das Emissões de Metano – Brasil ({ano_selecionado})', fontsize=14)
+        ax_emissoes.grid(True, linestyle=':', alpha=0.4)
+        ax_emissoes.legend(loc='lower right')
+        ax_emissoes.set_xlim(0, 100)
+        ax_emissoes.set_ylim(0, 100)
+        
+        # Formatação dos eixos (percentual)
+        ax_emissoes.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'{x:.0f}%'))
+        ax_emissoes.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'{x:.0f}%'))
+        
+        plt.tight_layout()
+        st.pyplot(fig_emissoes)
+        plt.close(fig_emissoes)
+        
+        st.caption(f"""
+        📌 **Interpretação:** A curva demonstra que os **{formatar_br(pct_municipios_80_emissoes, auto_precision=False, casas_override=1)}% maiores emissores** concentram **80% de todas as emissões de metano do Brasil**. 
+        Comparando com a concentração da massa, este número pode ser maior ou menor, dependendo do MCF e da composição dos resíduos (DOC/k) de cada município.
+        """)
+        
         # --------------------------------------------
         # GRÁFICO 1: TOP 20 EMISSORES (EMISSÃO ABSOLUTA)
         # --------------------------------------------
         st.markdown("---")
         st.subheader("🏆 Top 20 Municípios que mais Emitem Metano (emissão absoluta)")
         
-        # Seleciona os 20 maiores e ordena decrescente (do maior para o menor)
         top20 = df_filtrado.nlargest(20, 'Emissao_Bruta_tCO2e_ano')
         top20 = top20.sort_values('Emissao_Bruta_tCO2e_ano', ascending=False)
         
-        # Mapeamento de cores para gestão
         cor_map = {'Sanitário': '#2ecc71', 'Controlado': '#f39c12', 'Lixão/Precário': '#e74c3c'}
         top20['Cor'] = top20['Gestao_Predominante'].map(cor_map)
         
@@ -1992,7 +2083,6 @@ with tab_diagnostico:
         ax.set_xlabel('Emissão Média Anual (tCO₂e / ano)')
         ax.set_title('Ranking de Emissões de Metano por Município')
         
-        # ---- FORMATAÇÃO BR (vírgula decimal, ponto milhar, 2 casas) ----
         def formatar_eixo_br(x, pos):
             return formatar_br(x, auto_precision=False, casas_override=2)
         ax.xaxis.set_major_formatter(FuncFormatter(formatar_eixo_br))
@@ -2005,9 +2095,7 @@ with tab_diagnostico:
         ]
         ax.legend(handles=legend_elements, loc='lower right')
         
-        # Inverte a ordem do eixo Y para garantir que o primeiro item da lista (maior) fique no TOPO
         ax.invert_yaxis()
-        
         plt.tight_layout()
         st.pyplot(fig)
         plt.close(fig)
@@ -2032,7 +2120,6 @@ with tab_diagnostico:
         independentemente do tamanho populacional.
         """)
         
-        # Filtra municípios com população > 0 para evitar divisão por zero
         df_percapita = df_filtrado[df_filtrado['Emissao_per_capita_kgCO2e'] > 0].copy()
         
         if df_percapita.empty:
@@ -2040,8 +2127,6 @@ with tab_diagnostico:
         else:
             top20_percapita = df_percapita.nlargest(20, 'Emissao_per_capita_kgCO2e')
             top20_percapita = top20_percapita.sort_values('Emissao_per_capita_kgCO2e', ascending=False)
-            
-            # Mapeamento de cores
             top20_percapita['Cor'] = top20_percapita['Gestao_Predominante'].map(cor_map)
             
             fig2, ax2 = plt.subplots(figsize=(12, 8))
@@ -2057,7 +2142,6 @@ with tab_diagnostico:
                 return formatar_br(x, auto_precision=False, casas_override=2)
             ax2.xaxis.set_major_formatter(FuncFormatter(formatar_eixo_br_percapita))
             
-            from matplotlib.patches import Patch
             legend_elements = [
                 Patch(facecolor='#2ecc71', label='Aterro Sanitário (MCF≥0.8)'),
                 Patch(facecolor='#f39c12', label='Aterro Controlado (MCF 0.4-0.8)'),
@@ -2073,15 +2157,15 @@ with tab_diagnostico:
             st.caption("🔴 Vermelho = Lixões ou aterros precários | 🟡 Amarelo = Controlado | 🟢 Verde = Sanitário (bem gerenciado)")
         
         # --------------------------------------------
-        # GRÁFICO 3: MATRIZ DE DECISÃO (QUADRANTES)
+        # GRÁFICO 3: MATRIZ DE DECISÃO
         # --------------------------------------------
         st.markdown("---")
         st.subheader("📊 Matriz de Decisão: Massa x Intensidade")
         st.markdown("""
         **Como interpretar:**
-        - **🚨 CRÍTICO (Alta Massa + Alta Intensidade)**: Prioridade máxima para intervenção (compostagem ou melhoria do aterro).
-        - **⚠️ INEFICIENTE (Baixa Massa + Alta Intensidade)**: Pequenos lixões que precisam ser fechados com urgência.
-        - **✅ REFERÊNCIA (Alta Massa + Baixa Intensidade)**: Grandes cidades que já fazem gestão adequada.
+        - **🚨 CRÍTICO (Alta Massa + Alta Intensidade)**: Prioridade máxima para intervenção.
+        - **⚠️ INEFICIENTE (Baixa Massa + Alta Intensidade)**: Pequenos lixões que precisam ser fechados.
+        - **✅ REFERÊNCIA (Alta Massa + Baixa Intensidade)**: Grandes cidades com gestão adequada.
         - **📉 BAIXA PRIORIDADE (Baixa Massa + Baixa Intensidade)**: Pequenas cidades com gestão razoável.
         """)
         
