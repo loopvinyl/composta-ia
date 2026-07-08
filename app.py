@@ -394,7 +394,7 @@ def plot_simulacao_compostagem(df_sim):
     return fig
 
 # =========================================================
-# CARREGAMENTO E PREPARAÇÃO DOS DADOS (MODIFICADO)
+# CARREGAMENTO E PREPARAÇÃO DOS DADOS
 # =========================================================
 @st.cache_data
 def load_data(ano):
@@ -408,7 +408,6 @@ def load_data(ano):
     
     # 3. Seleciona apenas as colunas necessárias da caracterização
     cols_caract = ['Cod_IBGE', 'GTR1501', 'GTR1502', 'GTR1503', 'GTR1504', 'GTR1505', 'GTR1506', 'GTR1507']
-    # Verifica se as colunas existem (por segurança)
     cols_existentes = [col for col in cols_caract if col in df_caract.columns]
     df_caract_filtrado = df_caract[cols_existentes]
     
@@ -419,6 +418,7 @@ def load_data(ano):
 
 df = load_data(ano_selecionado)
 
+# Mapeamento de colunas
 COL_CODIGO_ROTA = df.columns[16]
 COL_MUNICIPIO = df.columns[2]
 COL_TIPO_COLETA = df.columns[17]
@@ -426,15 +426,19 @@ COL_MASSA = df.columns[24]
 COL_DESTINO = df.columns[28]
 COL_UF = df.columns[3]
 
+# Renomeia para padronização
 df = df.rename(columns={
     COL_MUNICIPIO: "MUNICÍPIO",
     COL_TIPO_COLETA: "TIPO_COLETA_EXECUTADA",
-    COL_MASSA: "MASSA_COLETADA"
+    COL_MASSA: "MASSA_COLETADA",
+    COL_UF: "UF"  # <--- ADICIONADO PARA PADRONIZAR
 })
 
+# Atualiza as variáveis com os novos nomes
 COL_MUNICIPIO = "MUNICÍPIO"
 COL_TIPO_COLETA = "TIPO_COLETA_EXECUTADA"
 COL_MASSA = "MASSA_COLETADA"
+# COL_UF agora é "UF"
 
 def classificar_coleta(texto):
     if pd.isna(texto):
@@ -476,9 +480,13 @@ with st.spinner("🤖 Inicializando o modelo de Inteligência Artificial..."):
         st.success("✅ IA treinada e salva com sucesso!")
 
 # =========================================================
-# CRIAÇÃO DAS ABAS
+# CRIAÇÃO DAS ABAS (AGORA COM 3)
 # =========================================================
-tab_tradicional, tab_ia = st.tabs(["📊 Análise Tradicional (SNIS)", "🤖 Insights com Inteligência Artificial"])
+tab_tradicional, tab_ia, tab_diagnostico = st.tabs([
+    "📊 Análise Tradicional (SNIS)", 
+    "🤖 Insights com Inteligência Artificial",
+    "🔥 Diagnóstico de Emissões (Baseline)"
+])
 
 # ======================== ABA TRADICIONAL ========================
 with tab_tradicional:
@@ -607,7 +615,7 @@ with tab_tradicional:
             )]
 
         massa_total_est = df_estados["MASSA_FLOAT"].sum()
-        agg_estados = df_estados.groupby(COL_UF)["MASSA_FLOAT"].sum().reset_index()
+        agg_estados = df_estados.groupby("UF")["MASSA_FLOAT"].sum().reset_index()
         agg_estados = agg_estados.sort_values("MASSA_FLOAT", ascending=False)
         agg_estados["%"] = (agg_estados["MASSA_FLOAT"] / massa_total_est) * 100 if massa_total_est > 0 else 0
         agg_estados["% acumulado"] = agg_estados["%"].cumsum()
@@ -619,13 +627,13 @@ with tab_tradicional:
         col1, col2 = st.columns([2, 1])
         with col1:
             st.dataframe(
-                agg_estados.rename(columns={COL_UF: "Estado"})[["Estado", "Massa (t)", "%", "% acumulado"]],
+                agg_estados.rename(columns={"UF": "Estado"})[["Estado", "Massa (t)", "%", "% acumulado"]],
                 use_container_width=True
             )
         with col2:
             fig, ax = plt.subplots(figsize=(6, 8))
             top_estados = agg_estados.head(10)
-            ax.barh(top_estados[COL_UF], top_estados["MASSA_FLOAT"], color='forestgreen')
+            ax.barh(top_estados["UF"], top_estados["MASSA_FLOAT"], color='forestgreen')
             ax.set_xlabel('Massa (t)')
             ax.set_title('Top 10 estados')
             ax.xaxis.set_major_formatter(FuncFormatter(formatar_eixo_abreviado))
@@ -670,30 +678,26 @@ with tab_tradicional:
                 col_m2.metric("Massa p/ Compostagem", f"{formatar_br(pct_comp, auto_precision=False, casas_override=1)}%")
                 col_m3.metric("Massa p/ Aterro", f"{formatar_br(pct_aterro, auto_precision=False, casas_override=1)}%")
 
-                ranking_data = df_org_ranking.groupby([COL_MUNICIPIO, COL_UF, COL_DESTINO])["MASSA_FLOAT_RANK"].sum().reset_index()
+                ranking_data = df_org_ranking.groupby([COL_MUNICIPIO, "UF", COL_DESTINO])["MASSA_FLOAT_RANK"].sum().reset_index()
 
                 mapeamento = []
                 preco = st.session_state.preco_carbono
                 cambio = st.session_state.taxa_cambio
 
-                for (mun, uf), grupo in ranking_data.groupby([COL_MUNICIPIO, COL_UF]):
+                for (mun, uf), grupo in ranking_data.groupby([COL_MUNICIPIO, "UF"]):
                     massa_total_local = grupo["MASSA_FLOAT_RANK"].sum()
                     destinos = ", ".join(sorted(grupo[COL_DESTINO].unique()))
                     
                     # ---- Cálculo do MCF ponderado para este município ----
-                    # Para cada destino, calculamos o MCF e multiplicamos pela massa
                     grupo["MCF"] = grupo[COL_DESTINO].apply(lambda x: determinar_mcf_por_destino(x, 'organico'))
-                    # Massa que vai para aterro (MCF > 0)
                     grupo_aterro = grupo[grupo["MCF"] > 0]
                     massa_aterro_local = grupo_aterro["MASSA_FLOAT_RANK"].sum()
                     
-                    # MCF médio ponderado pela massa que vai para aterro
                     if massa_aterro_local > 0:
                         mcf_medio = (grupo_aterro["MASSA_FLOAT_RANK"] * grupo_aterro["MCF"]).sum() / massa_aterro_local
                     else:
-                        mcf_medio = 0.8  # fallback
+                        mcf_medio = 0.8
                     
-                    # ---- Cálculo das emissões ----
                     receita_anual = 0.0
                     if massa_aterro_local > 0:
                         df_mun_caract = df_clean[df_clean[COL_MUNICIPIO] == mun]
@@ -1129,7 +1133,7 @@ with tab_ia:
                         st.error(f"Erro na projeção: {e}")
     
     # =========================================================
-    # SEÇÃO 2: SIMULAÇÃO DE CENÁRIOS DE COMPOSTAGEM (MODIFICADA)
+    # SEÇÃO 2: SIMULAÇÃO DE CENÁRIOS DE COMPOSTAGEM
     # =========================================================
     st.markdown("---")
     st.subheader("💰 Simulador: Quanto o município (ou o Brasil) pode ganhar com créditos de carbono?")
@@ -1160,7 +1164,6 @@ with tab_ia:
         if massa_aterro_atual <= 0:
             st.warning("Esta seleção não envia resíduos orgânicos para aterro (já utiliza compostagem ou reciclagem total).")
         else:
-            # --- MCF médio ponderado para a simulação ---
             mcf_medio = (df_org_aterro['MASSA_COLETADA'] * df_org_aterro['MCF']).sum() / massa_aterro_atual if massa_aterro_atual > 0 else 0.8
             
             col1, col2 = st.columns(2)
@@ -1237,7 +1240,7 @@ with tab_ia:
                         st.error(f"Erro na simulação: {e}")
 
     # =========================================================
-    # SEÇÃO 3: CENÁRIOS DE EXPANSÃO DA COMPOSTAGEM (COM TEXTO REFINADO)
+    # SEÇÃO 3: CENÁRIOS DE EXPANSÃO DA COMPOSTAGEM
     # =========================================================
     st.markdown("---")
     st.subheader("🌍 Cenários de Expansão da Compostagem no Brasil")
@@ -1247,9 +1250,6 @@ with tab_ia:
     priorizando os municípios que já possuem coleta seletiva de orgânicos.
     """)
 
-    # -----------------------------------------------------------------
-    # 1. Identificar municípios com coleta seletiva de orgânicos
-    # -----------------------------------------------------------------
     mask_organicos = df_clean[COL_TIPO_COLETA].astype(str).str.contains(
         "seletiva.*orgânico|orgânico.*seletiva", case=False, na=False, regex=True
     )
@@ -1258,9 +1258,6 @@ with tab_ia:
     if df_org.empty:
         st.info("Nenhum município registrou coleta seletiva de resíduos orgânicos no SNIS para este ano.")
     else:
-        # -----------------------------------------------------------------
-        # 2. Calcular massas de aterro e compostagem por município
-        # -----------------------------------------------------------------
         df_org['MCF'] = df_org[COL_DESTINO].apply(determinar_mcf_por_destino)
         df_aterro = df_org[df_org['MCF'] > 0].groupby(COL_MUNICIPIO).agg({COL_MASSA: 'sum'}).reset_index()
         df_aterro.rename(columns={COL_MASSA: 'Massa_Aterro'}, inplace=True)
@@ -1270,17 +1267,12 @@ with tab_ia:
         df_mun_cenario = pd.merge(df_aterro, df_compost, on=COL_MUNICIPIO, how='outer').fillna(0)
         df_mun_cenario['Massa_Total'] = df_mun_cenario['Massa_Aterro'] + df_mun_cenario['Massa_Compostagem']
 
-        df_uf_mun = df_clean[[COL_MUNICIPIO, COL_UF]].drop_duplicates(subset=[COL_MUNICIPIO])
-        df_uf_mun.rename(columns={COL_UF: 'UF'}, inplace=True)
+        df_uf_mun = df_clean[[COL_MUNICIPIO, "UF"]].drop_duplicates(subset=[COL_MUNICIPIO])
         df_mun_cenario = pd.merge(df_mun_cenario, df_uf_mun, on=COL_MUNICIPIO, how='left')
 
-        # Percentual de compostagem sobre a massa orgânica coletada seletivamente
         df_mun_cenario['Pct_Compostagem'] = (df_mun_cenario['Massa_Compostagem'] / df_mun_cenario['Massa_Total']) * 100
         df_mun_cenario['Pct_Compostagem'] = df_mun_cenario['Pct_Compostagem'].fillna(0).round(2)
 
-        # -----------------------------------------------------------------
-        # 2.1 Calcular o percentual de coleta seletiva dos municípios que já têm coleta
-        # -----------------------------------------------------------------
         df_total_mun = df_clean.groupby(COL_MUNICIPIO).agg({COL_MASSA: 'sum'}).reset_index()
         df_total_mun.rename(columns={COL_MASSA: 'Massa_Total_RSU'}, inplace=True)
 
@@ -1291,16 +1283,9 @@ with tab_ia:
         df_pct_seletiva['Pct_Seletiva'] = (df_pct_seletiva['Massa_Seletiva_Organicos'] / df_pct_seletiva['Massa_Total_RSU']) * 100
         df_pct_seletiva['Pct_Seletiva'] = df_pct_seletiva['Pct_Seletiva'].fillna(0).round(2)
 
-        df_uf_mun2 = df_clean[[COL_MUNICIPIO, COL_UF]].drop_duplicates(subset=[COL_MUNICIPIO])
-        df_uf_mun2 = df_uf_mun2.rename(columns={COL_UF: 'UF'})
+        df_uf_mun2 = df_clean[[COL_MUNICIPIO, "UF"]].drop_duplicates(subset=[COL_MUNICIPIO])
         df_pct_seletiva = pd.merge(df_pct_seletiva, df_uf_mun2, on=COL_MUNICIPIO, how='left')
 
-        if 'UF' not in df_pct_seletiva.columns:
-            df_pct_seletiva['UF'] = ''
-
-        # -----------------------------------------------------------------
-        # 3. Exibir resumo atual
-        # -----------------------------------------------------------------
         total_aterro = df_mun_cenario['Massa_Aterro'].sum()
         total_compost = df_mun_cenario['Massa_Compostagem'].sum()
         total_massa_org = total_aterro + total_compost
@@ -1337,13 +1322,10 @@ with tab_ia:
                 use_container_width=True
             )
 
-        # -----------------------------------------------------------------
-        # 4. Cenário 1 – Atual (com percentual real de compostagem)
-        # -----------------------------------------------------------------
         st.markdown("---")
         st.subheader("📌 Cenário 1 – Situação Atual (com percentual real de compostagem)")
 
-        doc_medio, docf_medio, k_medio = DOC_PADRAO, 0.5, K_PADRAO  # fallback
+        doc_medio, docf_medio, k_medio = DOC_PADRAO, 0.5, K_PADRAO
         co2_aterro_por_t = calcular_co2eq_aterro_20anos(1, 0.8, k_medio, doc_medio, docf_medio)
         co2_compost_por_t = calcular_co2eq_compostagem_UNFCCC(1)
         co2_evitado_por_t = co2_aterro_por_t - co2_compost_por_t
@@ -1369,18 +1351,14 @@ with tab_ia:
         )
         st.caption(f"Percentual de compostagem sobre o total de orgânicos: {formatar_br(pct_compost_real, auto_precision=False, casas_override=2)}%")
 
-        # -----------------------------------------------------------------
-        # 5. Cenário 2 – Expansão da coleta seletiva para novos municípios
-        # -----------------------------------------------------------------
         st.markdown("---")
         st.subheader("📌 Cenário 2 – Expansão da coleta seletiva para novos municípios")
 
-        # Identificar municípios sem coleta seletiva para obter os números
         df_total_geral = df_clean.groupby(COL_MUNICIPIO).agg({
             COL_MASSA: 'sum',
-            COL_UF: 'first'
+            "UF": 'first'
         }).reset_index()
-        df_total_geral.rename(columns={COL_MASSA: 'Massa_Total_Geral', COL_UF: 'UF'}, inplace=True)
+        df_total_geral.rename(columns={COL_MASSA: 'Massa_Total_Geral'}, inplace=True)
 
         municipios_com_seletiva = df_mun_cenario['MUNICÍPIO'].unique()
         df_sem_seletiva = df_total_geral[~df_total_geral[COL_MUNICIPIO].isin(municipios_com_seletiva)]
@@ -1388,7 +1366,6 @@ with tab_ia:
         num_sem_seletiva = len(df_sem_seletiva)
         num_com_seletiva = len(municipios_com_seletiva)
 
-        # Texto descritivo com os números
         st.markdown(f"""
         Este cenário considera a implementação da coleta seletiva de orgânicos em municípios que atualmente não a possuem.
 
@@ -1396,22 +1373,14 @@ with tab_ia:
         - **{num_com_seletiva} municípios** já possuem coleta seletiva de orgânicos.
         - **{num_sem_seletiva} municípios** ainda não possuem essa coleta.
         - Esses {num_sem_seletiva} municípios geram **{formatar_br(massa_sem_seletiva, auto_precision=False, casas_override=0)} t/ano** de resíduos sólidos urbanos.
-
-        A meta de cobertura (percentual da massa total que será coletada seletivamente) é definida com base nos percentuais dos municípios que já possuem coleta seletiva:
-        - **Realista**: utiliza o **1º quartil (25%)** dos percentuais de coleta seletiva.
-        - **Otimista**: utiliza a **média** dos percentuais de coleta seletiva.
-
-        A **massa adicional desviada** é calculada aplicando a meta de cobertura à massa total dos municípios sem coleta seletiva. Dessa massa adicional coletada seletivamente, uma fração é efetivamente compostada (usando o percentual real de compostagem **{formatar_br(pct_compost_real, auto_precision=False, casas_override=2)}%** observado nos municípios que já possuem coleta seletiva).
         """)
 
         if massa_sem_seletiva == 0:
             st.info("✅ Todos os municípios já possuem coleta seletiva de orgânicos. Não há expansão possível.")
         else:
-            # Calcular percentis de coleta seletiva dos municípios que já têm
             pct_25 = df_pct_seletiva['Pct_Seletiva'].quantile(0.25)
             pct_media = df_pct_seletiva['Pct_Seletiva'].mean()
 
-            # Fallback para evitar valores muito baixos ou inconsistentes
             if pct_25 <= 0.01 or np.isnan(pct_25):
                 pct_25 = 0.5
                 st.warning("⚠️ O 1º quartil calculado foi muito baixo ou nulo. Usando valor de fallback de 0,5% para o cenário realista.")
@@ -1434,10 +1403,7 @@ with tab_ia:
 
             st.info(f"**Meta de cobertura escolhida:** {rotulo}")
 
-            # Massa adicional que será coletada seletivamente
             massa_adicional_coletada = massa_sem_seletiva * (meta_cobertura / 100)
-
-            # Dessa massa adicional coletada, qual percentual será efetivamente compostado?
             massa_adicional_compost = massa_adicional_coletada * (pct_compost_real / 100)
 
             evitado_adicional = massa_adicional_compost * co2_evitado_por_t
@@ -1510,17 +1476,11 @@ with tab_ia:
     e projeta o impacto de uma expansão da cobertura para todos os municípios, com três cenários.
     """)
 
-    # -----------------------------------------------------------------
-    # 1. Calcular massa total e massa de coleta seletiva por município
-    # -----------------------------------------------------------------
     df_total = df_clean.groupby(COL_MUNICIPIO).agg({
         COL_MASSA: 'sum',
-        COL_UF: 'first'
+        "UF": 'first'
     }).reset_index()
-    df_total.rename(columns={
-        COL_MASSA: 'Massa_Total',
-        COL_UF: 'UF'
-    }, inplace=True)
+    df_total.rename(columns={COL_MASSA: 'Massa_Total'}, inplace=True)
 
     mask_organicos = df_clean[COL_TIPO_COLETA].astype(str).str.contains(
         "seletiva.*orgânico|orgânico.*seletiva", case=False, na=False, regex=True
@@ -1533,9 +1493,6 @@ with tab_ia:
     df_cobertura['Pct_Seletiva'] = df_cobertura['Pct_Seletiva'].round(2)
     df_cobertura['Possui_Seletiva'] = df_cobertura['Massa_Seletiva_Organicos'] > 0
 
-    # -----------------------------------------------------------------
-    # 2. Resumo nacional
-    # -----------------------------------------------------------------
     total_municipios = len(df_cobertura)
     municipios_com_seletiva = df_cobertura[df_cobertura['Possui_Seletiva']].shape[0]
     municipios_sem_seletiva = total_municipios - municipios_com_seletiva
@@ -1557,9 +1514,6 @@ with tab_ia:
     col2.metric("Percentual nacional (massa)", f"{formatar_br(pct_seletiva_brasil, auto_precision=False, casas_override=2)}%")
     col3.metric("Média municipal (não ponderada)", f"{formatar_br(media_pct_municipios, auto_precision=False, casas_override=2)}%")
 
-    # =========================================================
-    # 🏆 TOP 10 MUNICÍPIOS
-    # =========================================================
     st.markdown("### 🏆 Destaques da Coleta Seletiva de Orgânicos")
 
     df_com_seletiva = df_cobertura[df_cobertura['Possui_Seletiva']].copy()
@@ -1620,9 +1574,6 @@ with tab_ia:
     st.pyplot(fig)
     plt.close(fig)
 
-    # -----------------------------------------------------------------
-    # 3. Cenários de expansão (com massa compostada em todos os cards)
-    # -----------------------------------------------------------------
     st.markdown("### 🚀 Cenários de Expansão da Cobertura")
 
     st.markdown("""
@@ -1643,7 +1594,6 @@ with tab_ia:
         pct_25 = 0
         pct_media = 0
 
-    # Fallback para evitar valores inconsistentes
     if pct_25 <= 0.01 or np.isnan(pct_25):
         pct_25 = 0.5
         st.warning("⚠️ O 1º quartil calculado foi muito baixo ou nulo. Usando valor de fallback de 0,5% para o cenário realista.")
@@ -1737,6 +1687,300 @@ with tab_ia:
     - O cenário otimista representa uma meta mais ambiciosa, baseada na média dos municípios que já possuem coleta seletiva.  
     - A receita total considera o preço do carbono e o câmbio atuais.
     """)
+
+# ======================== ABA DIAGNÓSTICO DE EMISSÕES ========================
+with tab_diagnostico:
+    st.header("🔥 Diagnóstico de Emissões de Metano (Baseline)")
+    st.markdown("""
+    Esta análise revela **quanto cada município está emitindo HOJE** (sem considerar créditos).
+    O cálculo usa a **mesma metodologia UNFCCC A6.4-AMT-003** aplicada ao **cenário atual (baseline)**,
+    considerando a massa que realmente vai para aterros, o tipo de gestão (MCF) e a composição do resíduo (DOC/k).
+    
+    **Use este diagnóstico para priorizar políticas públicas:** municípios com alta emissão e alta intensidade 
+    são os que mais se beneficiam com a implantação de compostagem ou melhoria do aterro.
+    """)
+    
+    # --------------------------------------------
+    # FUNÇÃO DE CÁLCULO PESADO (CACHEADA)
+    # --------------------------------------------
+    @st.cache_data
+    def calcular_emissoes_brutas_por_municipio(df):
+        """
+        Retorna um DataFrame com emissão bruta (tCO2e/ano) para cada município.
+        """
+        resultados = []
+        municipios = df['MUNICÍPIO'].unique()
+        
+        with st.spinner(f"🔄 Calculando emissões para {len(municipios)} municípios... (pode levar alguns segundos)"):
+            for mun in municipios:
+                df_mun = df[df['MUNICÍPIO'] == mun].copy()
+                
+                # 1. Calcula DOC, DOC_f, k ponderados
+                doc_pond, docf_pond, k_pond = calcular_doc_k_ponderado(df_mun)
+                
+                # 2. Calcula MCF para cada rota e filtra apenas as que vão para aterro (MCF > 0)
+                df_mun['MCF'] = df_mun[COL_DESTINO].apply(lambda x: determinar_mcf_por_destino(x, 'organico'))
+                df_aterro = df_mun[df_mun['MCF'] > 0].copy()
+                
+                if df_aterro.empty:
+                    # Município não envia resíduos para aterro
+                    continue
+                
+                # Converte massa para numérico
+                df_aterro['MASSA_FLOAT'] = pd.to_numeric(df_aterro['MASSA_COLETADA'], errors='coerce').fillna(0)
+                df_aterro = df_aterro[df_aterro['MASSA_FLOAT'] > 0]
+                
+                if df_aterro.empty:
+                    continue
+                
+                # Massa total que vai para aterro
+                massa_total_aterro = df_aterro['MASSA_FLOAT'].sum()
+                
+                # MCF médio ponderado pela massa
+                mcf_medio = (df_aterro['MASSA_FLOAT'] * df_aterro['MCF']).sum() / massa_total_aterro
+                
+                # 3. Cálculo da emissão bruta (em 20 anos, convertida para anual)
+                co2eq_20anos = calcular_co2eq_aterro_20anos(
+                    massa_total_aterro, 
+                    mcf_medio, 
+                    k_pond, 
+                    doc_pond, 
+                    docf_pond
+                )
+                emissao_anual = co2eq_20anos / 20.0
+                
+                # 4. Emissão per capita (tenta encontrar coluna de população)
+                pop_col = None
+                for col in df_mun.columns:
+                    if 'POP' in col.upper() or 'HABITANTE' in col.upper():
+                        pop_col = col
+                        break
+                
+                if pop_col:
+                    pop = pd.to_numeric(df_mun[pop_col].iloc[0], errors='coerce')
+                else:
+                    pop = 0
+                
+                if pd.isna(pop) or pop <= 0:
+                    pop = 0
+                
+                # 5. Intensidade (tCO2e por tonelada de resíduo)
+                intensidade = emissao_anual / massa_total_aterro if massa_total_aterro > 0 else 0
+                
+                # 6. UF do município
+                uf = df_mun['UF'].iloc[0] if 'UF' in df_mun.columns else 'N/A'
+                
+                # 7. Tipo de gestão predominante (para colorir o gráfico)
+                if mcf_medio >= 0.8:
+                    gestao_cat = "Sanitário"
+                elif mcf_medio >= 0.4:
+                    gestao_cat = "Controlado"
+                else:
+                    gestao_cat = "Lixão/Precário"
+                
+                resultados.append({
+                    'MUNICÍPIO': mun,
+                    'UF': uf,
+                    'Massa_Aterro_Anual_t': massa_total_aterro,
+                    'MCF_Medio': mcf_medio,
+                    'DOC_Medio': doc_pond,
+                    'k_Medio': k_pond,
+                    'Emissao_Bruta_tCO2e_ano': emissao_anual,
+                    'Intensidade_tCO2e_por_t': intensidade,
+                    'Emissao_per_capita_kgCO2e': (emissao_anual * 1000) / pop if pop > 0 else 0,
+                    'Gestao_Predominante': gestao_cat
+                })
+        
+        return pd.DataFrame(resultados)
+    
+    # --------------------------------------------
+    # EXECUÇÃO DO CÁLCULO
+    # --------------------------------------------
+    with st.spinner("⏳ Processando dados de todos os municípios..."):
+        df_emissoes = calcular_emissoes_brutas_por_municipio(df_clean)
+    
+    if df_emissoes.empty:
+        st.warning("Nenhum município com resíduos enviados para aterro foi encontrado.")
+    else:
+        # --------------------------------------------
+        # FILTROS
+        # --------------------------------------------
+        estados = sorted(df_emissoes['UF'].unique())
+        estado_selecionado = st.selectbox("Filtrar por Estado:", ["Todos"] + estados)
+        
+        if estado_selecionado != "Todos":
+            df_filtrado = df_emissoes[df_emissoes['UF'] == estado_selecionado]
+        else:
+            df_filtrado = df_emissoes
+        
+        # --------------------------------------------
+        # MÉTRICAS RÁPIDAS
+        # --------------------------------------------
+        total_emissoes = df_filtrado['Emissao_Bruta_tCO2e_ano'].sum()
+        total_massa = df_filtrado['Massa_Aterro_Anual_t'].sum()
+        media_intensidade = df_filtrado['Intensidade_tCO2e_por_t'].mean()
+        num_lixoes = df_filtrado[df_filtrado['Gestao_Predominante'] == 'Lixão/Precário'].shape[0]
+        
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("🌍 Emissão Total (ano)", f"{formatar_br(total_emissoes, auto_precision=False, casas_override=0)} tCO₂e")
+        col2.metric("⚖️ Massa em Aterro", f"{formatar_br(total_massa, auto_precision=False, casas_override=0)} t")
+        col3.metric("📊 Intensidade Média", f"{formatar_br(media_intensidade, auto_precision=False, casas_override=2)} tCO₂e/t")
+        col4.metric("⚠️ Municípios com Lixão", num_lixoes)
+        
+        # --------------------------------------------
+        # GRÁFICO 1: TOP 20 EMISSORES
+        # --------------------------------------------
+        st.markdown("---")
+        st.subheader("🏆 Top 20 Municípios que mais Emitem Metano")
+        
+        top20 = df_filtrado.nlargest(20, 'Emissao_Bruta_tCO2e_ano')
+        
+        # Mapeamento de cores para gestão
+        cor_map = {'Sanitário': '#2ecc71', 'Controlado': '#f39c12', 'Lixão/Precário': '#e74c3c'}
+        top20['Cor'] = top20['Gestao_Predominante'].map(cor_map)
+        
+        fig, ax = plt.subplots(figsize=(12, 8))
+        bars = ax.barh(
+            top20['MUNICÍPIO'] + " (" + top20['UF'] + ")",
+            top20['Emissao_Bruta_tCO2e_ano'],
+            color=top20['Cor']
+        )
+        ax.set_xlabel('Emissão Bruta (tCO₂e / ano)')
+        ax.set_title('Ranking de Emissões de Metano por Município')
+        ax.xaxis.set_major_formatter(FuncFormatter(formatar_eixo_abreviado))
+        
+        from matplotlib.patches import Patch
+        legend_elements = [
+            Patch(facecolor='#2ecc71', label='Aterro Sanitário (MCF≥0.8)'),
+            Patch(facecolor='#f39c12', label='Aterro Controlado (MCF 0.4-0.8)'),
+            Patch(facecolor='#e74c3c', label='Lixão/Precário (MCF<0.4)')
+        ]
+        ax.legend(handles=legend_elements, loc='lower right')
+        
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+        
+        st.caption("🔴 Vermelho = Lixões ou aterros precários | 🟡 Amarelo = Controlado | 🟢 Verde = Sanitário (bem gerenciado)")
+        
+        # --------------------------------------------
+        # GRÁFICO 2: MATRIZ DE DISPERSÃO (QUADRANTES)
+        # --------------------------------------------
+        st.markdown("---")
+        st.subheader("📊 Matriz de Decisão: Massa x Intensidade")
+        st.markdown("""
+        **Como interpretar:**
+        - **🚨 CRÍTICO (Alta Massa + Alta Intensidade)**: Prioridade máxima para intervenção (compostagem ou melhoria do aterro).
+        - **⚠️ INEFICIENTE (Baixa Massa + Alta Intensidade)**: Pequenos lixões que precisam ser fechados com urgência.
+        - **✅ REFERÊNCIA (Alta Massa + Baixa Intensidade)**: Grandes cidades que já fazem gestão adequada.
+        - **📉 BAIXA PRIORIDADE (Baixa Massa + Baixa Intensidade)**: Pequenas cidades com gestão razoável.
+        """)
+        
+        med_massa = df_filtrado['Massa_Aterro_Anual_t'].median()
+        med_intensidade = df_filtrado['Intensidade_tCO2e_por_t'].median()
+        
+        fig2, ax2 = plt.subplots(figsize=(10, 8))
+        
+        def categorizar(row):
+            if row['Massa_Aterro_Anual_t'] >= med_massa and row['Intensidade_tCO2e_por_t'] >= med_intensidade:
+                return 'Crítico'
+            elif row['Massa_Aterro_Anual_t'] < med_massa and row['Intensidade_tCO2e_por_t'] >= med_intensidade:
+                return 'Ineficiente'
+            elif row['Massa_Aterro_Anual_t'] >= med_massa and row['Intensidade_tCO2e_por_t'] < med_intensidade:
+                return 'Referência'
+            else:
+                return 'Baixa Prioridade'
+        
+        df_filtrado['Categoria'] = df_filtrado.apply(categorizar, axis=1)
+        
+        cores_cat = {
+            'Crítico': '#e74c3c',
+            'Ineficiente': '#f39c12',
+            'Referência': '#2ecc71',
+            'Baixa Prioridade': '#3498db'
+        }
+        
+        for cat in df_filtrado['Categoria'].unique():
+            subset = df_filtrado[df_filtrado['Categoria'] == cat]
+            ax2.scatter(
+                subset['Massa_Aterro_Anual_t'],
+                subset['Intensidade_tCO2e_por_t'],
+                label=cat,
+                color=cores_cat[cat],
+                alpha=0.7,
+                s=50
+            )
+        
+        ax2.axvline(x=med_massa, color='gray', linestyle='--', alpha=0.5)
+        ax2.axhline(y=med_intensidade, color='gray', linestyle='--', alpha=0.5)
+        
+        ax2.set_xlabel('Massa enviada ao Aterro (t/ano)')
+        ax2.set_ylabel('Intensidade de Emissão (tCO₂e / t)')
+        ax2.set_title('Matriz de Priorização de Municípios')
+        ax2.legend()
+        ax2.grid(True, linestyle=':', alpha=0.3)
+        ax2.xaxis.set_major_formatter(FuncFormatter(formatar_eixo_abreviado))
+        
+        plt.tight_layout()
+        st.pyplot(fig2)
+        plt.close(fig2)
+        
+        # --------------------------------------------
+        # TABELA INTERATIVA
+        # --------------------------------------------
+        st.markdown("---")
+        st.subheader("📋 Detalhamento por Município (Clique no cabeçalho para ordenar)")
+        
+        tabela_diagnostico = df_filtrado.copy()
+        tabela_diagnostico['Emissao_Bruta_tCO2e_ano'] = tabela_diagnostico['Emissao_Bruta_tCO2e_ano'].apply(
+            lambda x: formatar_numero_br(x, 0)
+        )
+        tabela_diagnostico['Massa_Aterro_Anual_t'] = tabela_diagnostico['Massa_Aterro_Anual_t'].apply(
+            lambda x: formatar_numero_br(x, 0)
+        )
+        tabela_diagnostico['Intensidade_tCO2e_por_t'] = tabela_diagnostico['Intensidade_tCO2e_por_t'].apply(
+            lambda x: formatar_numero_br(x, 2)
+        )
+        tabela_diagnostico['Emissao_per_capita_kgCO2e'] = tabela_diagnostico['Emissao_per_capita_kgCO2e'].apply(
+            lambda x: formatar_numero_br(x, 2)
+        )
+        tabela_diagnostico['MCF_Medio'] = tabela_diagnostico['MCF_Medio'].apply(
+            lambda x: formatar_numero_br(x, 2)
+        )
+        tabela_diagnostico['DOC_Medio'] = tabela_diagnostico['DOC_Medio'].apply(
+            lambda x: formatar_numero_br(x, 3)
+        )
+        
+        tabela_diagnostico = tabela_diagnostico[[
+            'MUNICÍPIO', 'UF', 'Gestao_Predominante', 'Massa_Aterro_Anual_t',
+            'MCF_Medio', 'DOC_Medio', 'Intensidade_tCO2e_por_t',
+            'Emissao_Bruta_tCO2e_ano', 'Emissao_per_capita_kgCO2e'
+        ]]
+        tabela_diagnostico = tabela_diagnostico.rename(columns={
+            'MUNICÍPIO': 'Município',
+            'UF': 'UF',
+            'Gestao_Predominante': 'Gestão',
+            'Massa_Aterro_Anual_t': 'Massa (t/ano)',
+            'MCF_Medio': 'MCF médio',
+            'DOC_Medio': 'DOC médio',
+            'Intensidade_tCO2e_por_t': 'Intensidade (tCO₂e/t)',
+            'Emissao_Bruta_tCO2e_ano': 'Emissão Bruta (tCO₂e/ano)',
+            'Emissao_per_capita_kgCO2e': 'Emissão per capita (kgCO₂e)'
+        })
+        
+        st.dataframe(tabela_diagnostico, use_container_width=True, height=500)
+        
+        # --------------------------------------------
+        # RODAPÉ DA ABA
+        # --------------------------------------------
+        st.markdown("---")
+        st.caption("""
+        **Metodologia:** UNFCCC A6.4-AMT-003 (Application B) – Baseline de aterro.  
+        - Emissão Bruta = emissões de metano (CH₄) do aterro em 20 anos, convertida para anual.  
+        - Intensidade = emissão por tonelada de resíduo depositado. Quanto menor, melhor a gestão do aterro.  
+        - MCF = 1,0 (Sanitário), 0,4-0,8 (Controlado), <0,4 (Lixão/Precário) – conforme Tabela 8 da norma.
+        - DOC/k calculados dinamicamente pela caracterização do resíduo no SNIS (colunas GTR1501 a GTR1507).
+        """)
 
 # =========================================================
 # AUTORIA E USO
