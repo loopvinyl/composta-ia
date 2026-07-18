@@ -417,13 +417,13 @@ COL_MASSA = df.columns[24]
 COL_DESTINO = df.columns[28]
 COL_UF = df.columns[3]
 
-# Renomeia todas para padronização
+# Renomeia todas para padronização (com acento em MUNICÍPIO)
 df = df.rename(columns={
     COL_MUNICIPIO: "MUNICÍPIO",
     COL_TIPO_COLETA: "TIPO_COLETA_EXECUTADA",
     COL_MASSA: "MASSA_COLETADA",
     COL_UF: "UF",
-    COL_DESTINO: "DESTINO"      # <-- renomeia também o destino
+    COL_DESTINO: "DESTINO"
 })
 
 # Atualiza as variáveis com os novos nomes
@@ -485,7 +485,7 @@ tab_tradicional, tab_ia, tab_diagnostico = st.tabs([
 ])
 
 # =========================================================
-# ABA TRADICIONAL (mantida integralmente, com colunas corrigidas)
+# ABA TRADICIONAL (mantida integralmente)
 # =========================================================
 with tab_tradicional:
     st.subheader(f"🇧🇷 Brasil — Síntese Nacional de RSU ({ano_selecionado})" if municipio == municipios[0] else f"📍 {municipio} - Ano {ano_selecionado}")
@@ -1267,7 +1267,7 @@ with tab_ia:
             "UF": 'first'
         }).reset_index()
         df_total_geral.rename(columns={COL_MASSA: 'Massa_Total_Geral'}, inplace=True)
-        municipios_com_seletiva = df_mun_cenario['MUNICIPIO'].unique()
+        municipios_com_seletiva = df_mun_cenario['MUNICÍPIO'].unique()
         df_sem_seletiva = df_total_geral[~df_total_geral[COL_MUNICIPIO].isin(municipios_com_seletiva)]
         massa_sem_seletiva = df_sem_seletiva['Massa_Total_Geral'].sum()
         num_sem_seletiva = len(df_sem_seletiva)
@@ -1537,7 +1537,7 @@ with tab_ia:
     """)
 
 # =========================================================
-# ABA DIAGNÓSTICO DE EMISSÕES (mantida igual)
+# ABA DIAGNÓSTICO DE EMISSÕES
 # =========================================================
 with tab_diagnostico:
     st.header("🔥 Diagnóstico de Emissões de Metano (Baseline)")
