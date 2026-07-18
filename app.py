@@ -498,10 +498,26 @@ with tab_tradicional:
         st.markdown("### 📊 Panorama Nacional de Geração de Resíduos")
         st.markdown(f"**Dados do SNIS – {ano_selecionado}**")
         
+        # ----- ADIÇÃO: checkbox para ocultar transbordos no panorama -----
+        ocultar_transbordo_panorama = st.checkbox(
+            "Ocultar transbordos no panorama",
+            value=False,
+            key="ocultar_transbordo_panorama",
+            help="Exclui rotas cujo destino é 'Transbordo' para evitar dupla contagem e alinhar com a visão consolidada."
+        )
+        # ----------------------------------------------------------------
+        
         # --- Cálculo das estatísticas per capita e Pareto ---
         with st.spinner("Calculando estatísticas nacionais..."):
+            # Cria uma cópia dos dados para aplicar o filtro de transbordo
+            df_panorama = df_clean.copy()
+            if ocultar_transbordo_panorama:
+                df_panorama = df_panorama[~df_panorama[COL_DESTINO].apply(
+                    lambda x: "TRANSBORDO" in normalizar_texto(x) if pd.notna(x) else False
+                )]
+            
             # Agrupa por município para obter massa total e população
-            df_massa_mun = df_clean.groupby('MUNICÍPIO').agg({
+            df_massa_mun = df_panorama.groupby('MUNICÍPIO').agg({
                 'MASSA_COLETADA': 'sum',
                 'POPULACAO_TOTAL': 'first'
             }).reset_index()
@@ -535,7 +551,7 @@ with tab_tradicional:
                 df_ate_80 = df_ordenado[df_ordenado['pct_acumulado'] <= limiar]
                 pct_municipios_80 = (len(df_ate_80) / len(df_ordenado)) * 100
                 
-                # Encontra quantos % dos municípios atingem 50% da massa (opcional)
+                # Encontra quantos % dos municípios atingem 50% da massa
                 df_ate_50 = df_ordenado[df_ordenado['pct_acumulado'] <= 50]
                 pct_municipios_50 = (len(df_ate_50) / len(df_ordenado)) * 100
                 
@@ -623,8 +639,10 @@ with tab_tradicional:
                 st.pyplot(fig_conc)
                 plt.close(fig_conc)
                 
+                # Atualiza a legenda para indicar se transbordos foram ocultados
+                legenda_extra = " (transbordos ocultados)" if ocultar_transbordo_panorama else ""
                 st.caption(f"""
-                📌 **Interpretação:** A curva demonstra que os **{formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}% maiores municípios** (em massa) concentram **80% de todo o RSU do Brasil**. 
+                📌 **Interpretação:** A curva demonstra que os **{formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}% maiores municípios** (em massa) concentram **80% de todo o RSU do Brasil{legenda_extra}**. 
                 Isso significa que políticas focadas nos maiores centros urbanos têm impacto nacional significativo.
                 Média per capita: {formatar_br(media, auto_precision=False, casas_override=0)} kg/hab/ano | Mediana: {formatar_br(mediana, auto_precision=False, casas_override=0)} kg/hab/ano | Amplitude: {formatar_br(minimo, auto_precision=False, casas_override=0)} – {formatar_br(maximo, auto_precision=False, casas_override=0)} kg/hab/ano
                 """)
