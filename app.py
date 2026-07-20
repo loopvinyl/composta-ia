@@ -155,118 +155,87 @@ GWP_N2O = 265.0
 PHI_APPLICATION_B = 0.85
 OX_SOIL_COVER = 0.383
 F_METHANE_FRACTION = 0.5
+MCF_DEFAULT_BULK = 0.8
+
 ANOS_PROJECAO = 20
+DIAS_PROJECAO = ANOS_PROJECAO * 365
+T_ORGANICO = 25.0
+DOC_PADRAO = 0.15
+K_PADRAO = 0.07
 
 # =========================================================
-# >>> NOVAS FUNÇÕES DE CÁLCULO ALINHADAS COM A TOOL A6.4-AMT-003 <<<
+# FUNÇÃO PARA CALCULAR DOC, DOC_f e k PONDERADOS (VIA SNIS)
 # =========================================================
-
-def calcular_parametros_por_tipo(df_municipio):
+def calcular_doc_k_ponderado(df_municipio):
     """
-    Retorna dicionário com fração, DOC, DOC_f e k para cada tipo de resíduo,
-    conforme Tabelas 6, 7 e 10 da UNFCCC A6.4-AMT-003 (Tropical Wet).
+    Calcula DOC médio, DOC_f (fração que realmente se decompõe) e k (decay rate)
+    com base na caracterização dos resíduos (colunas GTR1501 a GTR1507).
+    Segue as Tabelas 7 e 10 da UNFCCC A6.4-AMT-003 (Tropical Wet).
     """
-    # Mapeamento das colunas do SNIS para os tipos da norma
-    mapeamento = {
-        'GTR1501': {'tipo': 'Food, food waste', 'doc': 0.15, 'docf': 0.7, 'k': 0.40},
-        'GTR1502': {'tipo': 'Glass, plastic, metal', 'doc': 0.0, 'docf': 0.0, 'k': 0.0},
-        'GTR1503': {'tipo': 'Glass, plastic, metal', 'doc': 0.0, 'docf': 0.0, 'k': 0.0},
-        'GTR1504': {'tipo': 'Glass, plastic, metal', 'doc': 0.0, 'docf': 0.0, 'k': 0.0},
-        'GTR1505': {'tipo': 'Pulp, paper, cardboard', 'doc': 0.40, 'docf': 0.5, 'k': 0.07},
-        'GTR1506': {'tipo': 'Textiles', 'doc': 0.24, 'docf': 0.5, 'k': 0.07},
-        'GTR1507': {'tipo': 'Wood and wood products', 'doc': 0.43, 'docf': 0.1, 'k': 0.035},  # CORRIGIDO: DOC=0.43
+    doc_map = {
+        'GTR1501': 0.15,
+        'GTR1502': 0.00,
+        'GTR1503': 0.00,
+        'GTR1504': 0.00,
+        'GTR1505': 0.40,
+        'GTR1506': 0.24,
+        'GTR1507': 0.10
+    }
+    docf_map = {
+        'GTR1501': 0.7,
+        'GTR1502': 0.0,
+        'GTR1503': 0.0,
+        'GTR1504': 0.0,
+        'GTR1505': 0.5,
+        'GTR1506': 0.5,
+        'GTR1507': 0.1
+    }
+    k_map = {
+        'GTR1501': 0.17,
+        'GTR1502': 0.0,
+        'GTR1503': 0.0,
+        'GTR1504': 0.0,
+        'GTR1505': 0.07,
+        'GTR1506': 0.07,
+        'GTR1507': 0.035
     }
 
-    cols = [col for col in mapeamento.keys() if col in df_municipio.columns]
+    cols = [col for col in doc_map.keys() if col in df_municipio.columns]
     if not cols:
-        return {}
+        return 0.15, 0.5, 0.07
 
-    pcts = pd.to_numeric(df_municipio[cols], errors='coerce').fillna(0)
-    total = pcts.sum().sum()
-    if total <= 0:
-        return {}
+    pct = pd.to_numeric(df_municipio[cols], errors='coerce').fillna(0)
+    total_pct = pct.sum().sum()
+    if total_pct <= 0:
+        return 0.15, 0.5, 0.07
 
-    fracoes = {}
-    for col in cols:
-        fracao = pcts[col].sum() / total
-        if fracao > 0 and mapeamento[col]['k'] > 0:
-            fracoes[col] = {
-                'fracao': fracao,
-                'doc': mapeamento[col]['doc'],
-                'docf': mapeamento[col]['docf'],
-                'k': mapeamento[col]['k']
-            }
-    return fracoes
+    doc_pond = sum(pct[col].sum() * doc_map.get(col, 0) for col in cols) / total_pct
+    docf_pond = sum(pct[col].sum() * docf_map.get(col, 0) for col in cols) / total_pct
+    k_pond = sum(pct[col].sum() * k_map.get(col, 0) for col in cols) / total_pct
 
-def calcular_emissao_anual_FOD(massa_t_ano, fracoes_por_tipo, mcf, anos_historico=20):
-    """
-    Calcula a emissão de CH4 (tCO2e) no ano atual (y) para uma massa depositada,
-    usando o modelo FOD da Equação (1) da UNFCCC A6.4-AMT-003.
-    Assume que a massa é depositada de forma constante ao longo dos anos_historico.
-    """
-    if massa_t_ano <= 0 or mcf <= 0 or not fracoes_por_tipo:
+    doc_pond = max(0.01, min(0.5, doc_pond))
+    docf_pond = max(0.05, min(0.9, docf_pond))
+    k_pond = max(0.01, min(0.5, k_pond))
+    return doc_pond, docf_pond, k_pond
+
+# =========================================================
+# FUNÇÃO DE CÁLCULO – ATERRO (BASELINE UNFCCC) - MODELO ANUAL (EQUAÇÃO 1)
+# =========================================================
+def calcular_co2eq_aterro_20anos(massa_t_ano, mcf, k_ano, doc_pond, docf_pond):
+    if massa_t_ano <= 0 or mcf <= 0:
         return 0.0
+    massa_kg = massa_t_ano * 1000
+    ch4_pot_por_kg = (doc_pond * docf_pond * mcf * F_METHANE_FRACTION * (16/12) *
+                      (1 - OX_SOIL_COVER) * PHI_APPLICATION_B)
+    frac_decomposta = 1 - np.exp(-k_ano * ANOS_PROJECAO)
+    ch4_total_kg = massa_kg * ch4_pot_por_kg * frac_decomposta
+    co2eq_total_t = (ch4_total_kg * GWP_CH4) / 1000.0
+    return co2eq_total_t
 
-    emissao_total_ano_atual = 0.0
-
-    for col, dados in fracoes_por_tipo.items():
-        fracao = dados['fracao']
-        doc = dados['doc']
-        docf = dados['docf']
-        k = dados['k']
-
-        if k <= 0 or doc <= 0:
-            continue
-
-        massa_tipo = massa_t_ano * fracao
-
-        # Soma sobre os anos anteriores (t = 0 é o ano atual, t = 1 é ano anterior...)
-        soma_fod = 0.0
-        for t in range(anos_historico):
-            # Modelo FOD: termo exponencial para o ano y considerando deposição no ano (y - t)
-            termo = np.exp(-k * t) * (1 - np.exp(-k))
-            soma_fod += termo
-
-        # Emissão de CH4 para este tipo (kg)
-        ch4_kg = (massa_tipo * 1000) * (
-            doc * docf * mcf * F_METHANE_FRACTION * (16/12) *
-            (1 - OX_SOIL_COVER) * PHI_APPLICATION_B * soma_fod
-        )
-
-        emissao_total_ano_atual += (ch4_kg * GWP_CH4) / 1000.0
-
-    return emissao_total_ano_atual
-
-def determinar_mcf_por_destino(destino, tipo_residuo='organico'):
-    """Refinado conforme Tabela 8 da UNFCCC A6.4-AMT-003."""
-    if pd.isna(destino):
-        return 0.0
-    texto = normalizar_texto(destino)
-
-    if 'aterro sanitario' in texto:
-        if 'semi-aerobio' in texto or 'semi aerobio' in texto:
-            if 'mal gerenciado' in texto or 'precario' in texto:
-                return 0.8
-            else:
-                return 0.5
-        elif 'aeracao ativa' in texto or 'aeração ativa' in texto:
-            if 'mal gerenciado' in texto:
-                return 0.7
-            else:
-                return 0.4
-        else:
-            return 1.0  # Anaeróbico bem gerenciado
-    elif 'aterro controlado' in texto:
-        return 0.4
-    elif 'lixao' in texto or 'vazadouro' in texto or 'disposicao final' in texto:
-        return 0.4
-    elif 'compostagem' in texto or 'usina de triagem' in texto:
-        return 0.0
-    else:
-        return 0.0
-
+# =========================================================
+# FUNÇÃO DE CÁLCULO – COMPOSTAGEM (UNFCCC TOOL13 / AMS-III.F)
+# =========================================================
 def calcular_co2eq_compostagem_UNFCCC(massa_t_ano):
-    """Emissões da compostagem (UNFCCC TOOL13 / AMS-III.F) - mantido igual."""
     if massa_t_ano <= 0:
         return 0.0
     massa_kg = massa_t_ano * 1000
@@ -275,14 +244,32 @@ def calcular_co2eq_compostagem_UNFCCC(massa_t_ano):
     co2eq_t = (ch4_kg * GWP_CH4 + n2o_kg * GWP_N2O) / 1000.0
     return co2eq_t
 
+def determinar_mcf_por_destino(destino, tipo_residuo='organico'):
+    if pd.isna(destino):
+        return 0.0
+    destino_norm = normalizar_texto(destino)
+    if "ATERRO SANITARIO" in destino_norm:
+        if "GERENCIADO" in destino_norm or "COLETA" in destino_norm or "BIOGÁS" in destino_norm:
+            mcf_base = 1.0
+        else:
+            mcf_base = 0.8
+    elif "ATERRO CONTROLADO" in destino_norm:
+        mcf_base = 0.4
+    elif "LIXAO" in destino_norm or "VAZADOURO" in destino_norm:
+        mcf_base = 0.4
+    else:
+        mcf_base = 0.0
+    return mcf_base
+
 # =========================================================
-# FUNÇÃO ATUALIZADA: CALCULAR EVITADO POR MUNICÍPIO
+# FUNÇÃO: CALCULAR EVITADO POR MUNICÍPIO (PARÂMETROS ESPECÍFICOS) - CORRIGIDA
 # =========================================================
 @st.cache_data
 def calcular_evitado_por_municipio(df, col_destino, col_massa):
     """
     Calcula o evitado (tCO2e) para cada município com coleta seletiva orgânica,
     utilizando os parâmetros específicos (DOC/k/MCF) de cada município.
+    Retorna DataFrame com colunas: MUNICÍPIO, Massa_Org_Seletiva, Evitado_Total
     """
     resultados = []
     mask_org = df['TIPO_COLETA_EXECUTADA'].astype(str).str.contains(
@@ -291,47 +278,22 @@ def calcular_evitado_por_municipio(df, col_destino, col_massa):
     df_org = df[mask_org].copy()
     if df_org.empty:
         return pd.DataFrame(columns=['MUNICÍPIO', 'Massa_Org_Seletiva', 'Evitado_Total'])
-
     for mun in df_org['MUNICÍPIO'].unique():
         df_mun = df[df['MUNICÍPIO'] == mun].copy()
         df_mun_org = df_org[df_org['MUNICÍPIO'] == mun].copy()
         massa_org = df_mun_org['MASSA_COLETADA'].sum()
         if massa_org == 0:
             continue
-
-        # 1. Parâmetros específicos do município (DOC, k)
-        fracoes = calcular_parametros_por_tipo(df_mun)
-        if not fracoes:
-            # Fallback conservador
-            fracoes = {'GTR1505': {'fracao': 1.0, 'doc': 0.15, 'docf': 0.5, 'k': 0.07}}
-
-        # 2. MCF médio ponderado para os orgânicos (baseline)
-        df_mun_org['MCF'] = df_mun_org[col_destino].apply(determinar_mcf_por_destino)
-        df_org_aterro = df_mun_org[df_mun_org['MCF'] > 0]
-        if df_org_aterro.empty:
-            # Se não há destino para aterro, usa MCF médio do município como proxy
-            df_mun['MCF'] = df_mun[col_destino].apply(determinar_mcf_por_destino)
-            df_all_aterro = df_mun[df_mun['MCF'] > 0]
-            if df_all_aterro.empty:
-                mcf_medio = 0.8
-            else:
-                df_all_aterro['MASSA_FLOAT'] = pd.to_numeric(df_all_aterro['MASSA_COLETADA'], errors='coerce').fillna(0)
-                mcf_medio = (df_all_aterro['MASSA_FLOAT'] * df_all_aterro['MCF']).sum() / df_all_aterro['MASSA_FLOAT'].sum()
+        doc, docf, k = calcular_doc_k_ponderado(df_mun)
+        df_mun['MCF'] = df_mun[col_destino].apply(lambda x: determinar_mcf_por_destino(x, 'organico'))
+        df_aterro = df_mun[df_mun['MCF'] > 0].copy()
+        if not df_aterro.empty:
+            massa_aterro = df_aterro['MASSA_COLETADA'].sum()
+            mcf_medio = (df_aterro['MASSA_COLETADA'] * df_aterro['MCF']).sum() / massa_aterro if massa_aterro > 0 else 0.8
         else:
-            df_org_aterro['MASSA_FLOAT'] = pd.to_numeric(df_org_aterro['MASSA_COLETADA'], errors='coerce').fillna(0)
-            mcf_medio = (df_org_aterro['MASSA_FLOAT'] * df_org_aterro['MCF']).sum() / df_org_aterro['MASSA_FLOAT'].sum()
-
-        # 3. Emissões baseline (aterro) usando o modelo FOD anual
-        co2_aterro_org = calcular_emissao_anual_FOD(
-            massa_t_ano=massa_org,
-            fracoes_por_tipo=fracoes,
-            mcf=mcf_medio,
-            anos_historico=20
-        )
-
-        # 4. Emissões da compostagem
+            mcf_medio = 0.8
+        co2_aterro_org = calcular_co2eq_aterro_20anos(massa_org, mcf_medio, k, doc, docf)
         co2_compost_org = calcular_co2eq_compostagem_UNFCCC(massa_org)
-
         evitado = co2_aterro_org - co2_compost_org
         resultados.append({
             'MUNICÍPIO': mun,
@@ -341,79 +303,7 @@ def calcular_evitado_por_municipio(df, col_destino, col_massa):
     return pd.DataFrame(resultados)
 
 # =========================================================
-# FUNÇÃO ATUALIZADA: DIAGNÓSTICO DE EMISSÕES (TODOS OS RESÍDUOS)
-# =========================================================
-@st.cache_data
-def calcular_emissoes_brutas_por_municipio(df):
-    """
-    Calcula a emissão bruta de metano (tCO2e/ano) para todos os resíduos
-    que vão para aterro, usando a composição real de cada município.
-    """
-    resultados = []
-    municipios = df['MUNICÍPIO'].unique()
-    with st.spinner(f"🔄 Calculando emissões para {len(municipios)} municípios... (pode levar alguns segundos)"):
-        for mun in municipios:
-            df_mun = df[df['MUNICÍPIO'] == mun].copy()
-
-            # 1. Parâmetros do município
-            fracoes = calcular_parametros_por_tipo(df_mun)
-            if not fracoes:
-                continue
-
-            # 2. Calcula MCF para todas as rotas
-            df_mun['MCF'] = df_mun['DESTINO'].apply(determinar_mcf_por_destino)
-            df_aterro = df_mun[df_mun['MCF'] > 0].copy()
-            if df_aterro.empty:
-                continue
-
-            df_aterro['MASSA_FLOAT'] = pd.to_numeric(df_aterro['MASSA_COLETADA'], errors='coerce').fillna(0)
-            df_aterro = df_aterro[df_aterro['MASSA_FLOAT'] > 0]
-            if df_aterro.empty:
-                continue
-
-            massa_total_aterro = df_aterro['MASSA_FLOAT'].sum()
-            mcf_medio = (df_aterro['MASSA_FLOAT'] * df_aterro['MCF']).sum() / massa_total_aterro
-
-            # 3. Emissão anual usando FOD
-            co2eq_anual = calcular_emissao_anual_FOD(
-                massa_t_ano=massa_total_aterro,
-                fracoes_por_tipo=fracoes,
-                mcf=mcf_medio,
-                anos_historico=20
-            )
-
-            if co2eq_anual <= 0:
-                continue
-
-            intensidade = co2eq_anual / massa_total_aterro if massa_total_aterro > 0 else 0
-
-            pop = pd.to_numeric(df_mun['POPULACAO_TOTAL'].iloc[0], errors='coerce') if 'POPULACAO_TOTAL' in df_mun.columns else 0
-            if pd.isna(pop) or pop <= 0:
-                pop = 0
-
-            if mcf_medio >= 0.8:
-                gestao_cat = "Sanitário"
-            elif mcf_medio >= 0.4:
-                gestao_cat = "Controlado"
-            else:
-                gestao_cat = "Lixão/Precário"
-
-            resultados.append({
-                'MUNICÍPIO': mun,
-                'UF': df_mun['UF'].iloc[0] if 'UF' in df_mun.columns else 'N/A',
-                'Massa_Aterro_Anual_t': massa_total_aterro,
-                'MCF_Medio': mcf_medio,
-                'DOC_Medio': sum(v['doc'] * v['fracao'] for v in fracoes.values()),
-                'k_Medio': sum(v['k'] * v['fracao'] for v in fracoes.values()),
-                'Emissao_Bruta_tCO2e_ano': co2eq_anual,
-                'Intensidade_tCO2e_por_t': intensidade,
-                'Emissao_per_capita_kgCO2e': (co2eq_anual * 1000) / pop if pop > 0 else 0,
-                'Gestao_Predominante': gestao_cat
-            })
-    return pd.DataFrame(resultados)
-
-# =========================================================
-# FUNÇÕES DE PROJEÇÃO PER CAPITA E SIMULAÇÃO (MANTIDAS)
+# FUNÇÕES DE PROJEÇÃO PER CAPITA E SIMULAÇÃO
 # =========================================================
 def projetar_residuos_per_capita(populacao_atual, massa_anual_atual,
                                  taxa_crescimento_pop=0.01, anos=10):
@@ -527,7 +417,7 @@ COL_MASSA = df.columns[24]
 COL_DESTINO = df.columns[28]
 COL_UF = df.columns[3]
 
-# Renomeia todas para padronização
+# Renomeia todas para padronização (com acento em MUNICÍPIO)
 df = df.rename(columns={
     COL_MUNICIPIO: "MUNICÍPIO",
     COL_TIPO_COLETA: "TIPO_COLETA_EXECUTADA",
@@ -544,7 +434,7 @@ COL_UF = "UF"
 COL_DESTINO = "DESTINO"
 
 # =========================================================
-# CLASSIFICAÇÃO AUXILIAR DE COLETA (MANTIDA)
+# CLASSIFICAÇÃO AUXILIAR DE COLETA
 # =========================================================
 def classificar_coleta(texto):
     if pd.isna(texto):
@@ -586,7 +476,7 @@ with st.spinner("🤖 Inicializando o modelo de Inteligência Artificial..."):
         st.success("✅ IA treinada e salva com sucesso!")
 
 # =========================================================
-# CRIAÇÃO DAS ABAS (AS MESMAS DO ORIGINAL)
+# CRIAÇÃO DAS ABAS
 # =========================================================
 tab_tradicional, tab_ia, tab_diagnostico = st.tabs([
     "📊 Análise Tradicional (SNIS)",
@@ -595,7 +485,7 @@ tab_tradicional, tab_ia, tab_diagnostico = st.tabs([
 ])
 
 # =========================================================
-# ABA TRADICIONAL – (MANTIDA INTEGRALMENTE, POIS USA AS FUNÇÕES CORRIGIDAS)
+# ABA TRADICIONAL (mantida integralmente)
 # =========================================================
 with tab_tradicional:
     st.subheader(f"🇧🇷 Brasil — Síntese Nacional de RSU ({ano_selecionado})" if municipio == municipios[0] else f"📍 {municipio} - Ano {ano_selecionado}")
@@ -638,11 +528,14 @@ with tab_tradicional:
                 df_ordenado['pct_acumulado'] = (df_ordenado['massa_acumulada'] / massa_total) * 100
                 df_ate_80 = df_ordenado[df_ordenado['pct_acumulado'] <= 80]
                 pct_municipios_80 = (len(df_ate_80) / len(df_ordenado)) * 100
+                df_ate_50 = df_ordenado[df_ordenado['pct_acumulado'] <= 50]
+                pct_municipios_50 = (len(df_ate_50) / len(df_ordenado)) * 100
                 col1, col2, col3, col4 = st.columns(4)
                 col1.metric("📊 Média per capita", f"{formatar_br(media, auto_precision=False, casas_override=0)} kg/hab/ano")
                 col2.metric("📈 Mediana per capita", f"{formatar_br(mediana, auto_precision=False, casas_override=0)} kg/hab/ano")
                 col3.metric("📐 Quartis (25% / 75%)", f"{formatar_br(q1, auto_precision=False, casas_override=0)} / {formatar_br(q3, auto_precision=False, casas_override=0)} kg/hab/ano")
                 col4.metric("🎯 Concentração (Pareto)", f"{formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}% dos municípios concentram 80% do RSU")
+                # Gráfico de concentração...
                 fig_conc, ax_conc = plt.subplots(figsize=(12, 7))
                 df_ordenado['pct_municipios'] = (np.arange(len(df_ordenado)) + 1) / len(df_ordenado) * 100
                 ax_conc.plot(df_ordenado['pct_municipios'], df_ordenado['pct_acumulado'], color='#1f77b4', linewidth=3, label='Concentração real da massa')
@@ -826,14 +719,8 @@ with tab_tradicional:
                 for (mun, uf), grupo in ranking_data.groupby([COL_MUNICIPIO, "UF"]):
                     massa_total_local = grupo["MASSA_FLOAT_RANK"].sum()
                     destinos = ", ".join(sorted(grupo[COL_DESTINO].unique()))
-                    # Usa as novas funções para calcular o evitado
-                    df_mun_caract = df_clean[df_clean[COL_MUNICIPIO] == mun]
-                    fracoes = calcular_parametros_por_tipo(df_mun_caract)
-                    if not fracoes:
-                        fracoes = {'GTR1505': {'fracao': 1.0, 'doc': 0.15, 'docf': 0.5, 'k': 0.07}}
-                    # MCF ponderado para os orgânicos deste município
-                    grupo['MCF'] = grupo[COL_DESTINO].apply(determinar_mcf_por_destino)
-                    grupo_aterro = grupo[grupo['MCF'] > 0]
+                    grupo["MCF"] = grupo[COL_DESTINO].apply(lambda x: determinar_mcf_por_destino(x, 'organico'))
+                    grupo_aterro = grupo[grupo["MCF"] > 0]
                     massa_aterro_local = grupo_aterro["MASSA_FLOAT_RANK"].sum()
                     if massa_aterro_local > 0:
                         mcf_medio = (grupo_aterro["MASSA_FLOAT_RANK"] * grupo_aterro["MCF"]).sum() / massa_aterro_local
@@ -841,7 +728,9 @@ with tab_tradicional:
                         mcf_medio = 0.8
                     receita_anual = 0.0
                     if massa_aterro_local > 0:
-                        co2eq_aterro = calcular_emissao_anual_FOD(massa_aterro_local, fracoes, mcf_medio, 20)
+                        df_mun_caract = df_clean[df_clean[COL_MUNICIPIO] == mun]
+                        doc_pond, docf_pond, k_pond = calcular_doc_k_ponderado(df_mun_caract)
+                        co2eq_aterro = calcular_co2eq_aterro_20anos(massa_aterro_local, mcf_medio, k_pond, doc_pond, docf_pond)
                         co2eq_compostagem = calcular_co2eq_compostagem_UNFCCC(massa_aterro_local)
                         evitado_20anos = co2eq_aterro - co2eq_compostagem
                         receita_anual = (evitado_20anos / ANOS_PROJECAO) * preco * cambio
@@ -868,10 +757,11 @@ with tab_tradicional:
                     height=600
                 )
                 st.caption("""
-                - **Baseline (aterro)**: alinhado à UNFCCC A6.4-AMT-003 (Application B) – modelo FOD anual com separação por tipo de resíduo.
+                - **Baseline (aterro)**: alinhado à UNFCCC A6.4-AMT-003 (Application B) – CH₄ apenas, φ=0.85, OX=0.383, GWP_CH4=28.
                 - **Cenário de compostagem**: UNFCCC TOOL13 / AMS-III.F – CH₄=0.002, N₂O=0.0002, GWP_CH4=28, GWP_N2O=265.
-                - **DOC e k**: calculados dinamicamente a partir da caracterização dos resíduos do SNIS (conforme Tabelas 6, 7 e 10 da norma).
-                - **MCF**: refinado para distinguir aterros sanitários (bem/mal gerenciados, semi-aeróbicos, com aeração ativa) e lixões.
+                - **DOC e k**: calculados dinamicamente a partir da caracterização dos resíduos do SNIS (quando disponível).
+                - **MCF**: ponderado pelos diferentes destinos (aterro sanitário, controlado, lixão) de acordo com a Tabela 8 do anexo.
+                - **% da massa total**: percentual da massa total de RSU do município que é composta por orgânicos da coleta seletiva.
                 - Receita potencial anual considerando o preço atual do carbono.
                 """)
 
@@ -1004,15 +894,12 @@ with tab_tradicional:
     st.markdown("---")
     st.caption(f"""
     Fonte: SNIS (ano {ano_selecionado}) | **Metodologia: UNFCCC A6.4-AMT-003 (2025) + TOOL13 (AMS-III.F)** | IPCC AR5 (GWP-100)
-    Baseline (aterro): CH₄ apenas, φ=0.85, OX=0.383, GWP_CH4=28, modelo FOD anual com separação por tipo de resíduo.
-    Compostagem: CH₄=0.002, N₂O=0.0002, GWP_CH4=28, GWP_N2O=265.
-    DOC/k: conforme Tabelas 6, 7 e 10 da norma (valores corrigidos para madeira e alimentos).
-    MCF: refinado (Sanitário bem gerenciado=1.0; Semi-aeróbico bem gerenciado=0.5; Controlado/Lixão=0.4; etc.)
-    Cotações em tempo real via Yahoo Finance e APIs de câmbio.
+    Baseline (aterro): CH₄ apenas, φ=0.85, OX=0.383, GWP_CH4=28 | Compostagem: CH₄=0.002, N₂O=0.0002, GWP_CH4=28, GWP_N2O=265
+    DOC/k: ponderados pela caracterização dos resíduos do SNIS (quando disponível) | Cotações em tempo real via Yahoo Finance e APIs de câmbio.
     """)
 
 # =========================================================
-# ABA DE IA – MANTIDA IGUAL (POIS NÃO AFETA O CÁLCULO NUCLEAR)
+# ABA DE IA (com todas as correções de MUNICÍPIO)
 # =========================================================
 with tab_ia:
     st.header("🧠 Insights com Inteligência Artificial")
@@ -1216,7 +1103,6 @@ with tab_ia:
         else:
             df_mun_sim = df_clean[df_clean[COL_MUNICIPIO] == municipio_sim]
             titulo_sim = municipio_sim
-        # Usa a nova função de MCF
         df_mun_sim['MCF'] = df_mun_sim[COL_DESTINO].apply(determinar_mcf_por_destino)
         df_org_aterro = df_mun_sim[df_mun_sim['MCF'] > 0]
         massa_aterro_atual = df_org_aterro['MASSA_COLETADA'].sum()
@@ -1263,16 +1149,17 @@ with tab_ia:
                             st.success(f"💰 **Potencial total em {anos_sim} anos para {titulo_sim}: R$ {valor_final_fmt}**")
                             with st.expander("📊 Ver detalhamento dos cálculos (baseline e compostagem)"):
                                 st.markdown("""
-                                ### 🔍 Metodologia utilizada (atualizada)
-                                - **Baseline (aterro)**: UNFCCC A6.4-AMT-003 – modelo FOD anual (Equação 1), com separação por tipo de resíduo.
+                                ### 🔍 Metodologia utilizada
+                                - **Baseline (aterro)**: UNFCCC A6.4-AMT-003 – CH₄ apenas, φ=0.85, OX=0.383, GWP_CH4=28.
                                 - **Cenário de compostagem**: UNFCCC TOOL13 / AMS-III.F – CH₄=0.002, N₂O=0.0002, GWP_CH4=28, GWP_N2O=265.
                                 - **Emissões evitadas** = emissões do aterro – emissões da compostagem.
+                                - O fator de evitado médio (por tonelada) foi calculado a partir dos dados reais de todos os municípios com coleta seletiva orgânica.
                                 """)
                                 st.markdown(f"""
                                 **📌 Dados de entrada:**
                                 - Massa de orgânicos que vai para aterro atualmente: **{formatar_br(massa_aterro_atual, auto_precision=False, casas_override=0)} t/ano**
                                 - **MCF médio ponderado:** {formatar_br(mcf_medio, auto_precision=False, casas_override=2)}
-                                - **DOC/k específicos:** calculados por município (separados por tipo)
+                                - **DOC/k específicos:** calculados por município (média ponderada)
                                 - **Evitado médio por tonelada (real):** {formatar_br(co2_evitado_por_t, auto_precision=False, casas_override=2)} tCO₂e/t
                                 """)
                                 st.info("""
@@ -1650,7 +1537,7 @@ with tab_ia:
     """)
 
 # =========================================================
-# ABA DIAGNÓSTICO DE EMISSÕES (ATUALIZADA PARA USAR A NOVA FUNÇÃO)
+# ABA DIAGNÓSTICO DE EMISSÕES
 # =========================================================
 with tab_diagnostico:
     st.header("🔥 Diagnóstico de Emissões de Metano (Baseline)")
@@ -1666,6 +1553,54 @@ with tab_diagnostico:
     
     **Use este diagnóstico para priorizar políticas públicas:** municípios com alta emissão e alta intensidade são os que mais se beneficiam com a implantação de compostagem ou melhoria da gestão de aterros.
     """)
+    
+    @st.cache_data
+    def calcular_emissoes_brutas_por_municipio(df):
+        resultados = []
+        municipios = df['MUNICÍPIO'].unique()
+        with st.spinner(f"🔄 Calculando emissões para {len(municipios)} municípios... (pode levar alguns segundos)"):
+            for mun in municipios:
+                df_mun = df[df['MUNICÍPIO'] == mun].copy()
+                doc_pond, docf_pond, k_pond = calcular_doc_k_ponderado(df_mun)
+                df_mun['MCF'] = df_mun[COL_DESTINO].apply(lambda x: determinar_mcf_por_destino(x, 'organico'))
+                df_aterro = df_mun[df_mun['MCF'] > 0].copy()
+                if df_aterro.empty:
+                    continue
+                df_aterro['MASSA_FLOAT'] = pd.to_numeric(df_aterro['MASSA_COLETADA'], errors='coerce').fillna(0)
+                df_aterro = df_aterro[df_aterro['MASSA_FLOAT'] > 0]
+                if df_aterro.empty:
+                    continue
+                massa_total_aterro = df_aterro['MASSA_FLOAT'].sum()
+                mcf_medio = (df_aterro['MASSA_FLOAT'] * df_aterro['MCF']).sum() / massa_total_aterro
+                co2eq_20anos = calcular_co2eq_aterro_20anos(massa_total_aterro, mcf_medio, k_pond, doc_pond, docf_pond)
+                emissao_anual = co2eq_20anos / 20.0
+                if 'POPULACAO_TOTAL' in df_mun.columns:
+                    pop = pd.to_numeric(df_mun['POPULACAO_TOTAL'].iloc[0], errors='coerce')
+                else:
+                    pop = 0
+                if pd.isna(pop) or pop <= 0:
+                    pop = 0
+                intensidade = emissao_anual / massa_total_aterro if massa_total_aterro > 0 else 0
+                uf = df_mun['UF'].iloc[0] if 'UF' in df_mun.columns else 'N/A'
+                if mcf_medio >= 0.8:
+                    gestao_cat = "Sanitário"
+                elif mcf_medio >= 0.4:
+                    gestao_cat = "Controlado"
+                else:
+                    gestao_cat = "Lixão/Precário"
+                resultados.append({
+                    'MUNICÍPIO': mun,
+                    'UF': uf,
+                    'Massa_Aterro_Anual_t': massa_total_aterro,
+                    'MCF_Medio': mcf_medio,
+                    'DOC_Medio': doc_pond,
+                    'k_Medio': k_pond,
+                    'Emissao_Bruta_tCO2e_ano': emissao_anual,
+                    'Intensidade_tCO2e_por_t': intensidade,
+                    'Emissao_per_capita_kgCO2e': (emissao_anual * 1000) / pop if pop > 0 else 0,
+                    'Gestao_Predominante': gestao_cat
+                })
+        return pd.DataFrame(resultados)
 
     with st.spinner("⏳ Processando dados de todos os municípios..."):
         df_emissoes = calcular_emissoes_brutas_por_municipio(df_clean)
@@ -1856,15 +1791,15 @@ with tab_diagnostico:
         st.markdown("---")
         st.caption("""
         **Metodologia:** UNFCCC A6.4-AMT-003 (Application B) – Baseline de aterro.  
-        - **Emissão Média Anual**: média aritmética do total de emissões de metano (CH₄) projetado para os 20 anos seguintes ao depósito do resíduo do ano de referência (modelo anual, Equação 1, com separação por tipo de resíduo).  
+        - **Emissão Média Anual**: média aritmética do total de emissões de metano (CH₄) projetado para os 20 anos seguintes ao depósito do resíduo do ano de referência (modelo anual, Equação 1).  
         - **Emissão per capita**: emissão média anual dividida pela população do município (kgCO₂e/hab/ano).  
         - **Intensidade**: emissão média anual por tonelada de resíduo depositado. Quanto menor, melhor a gestão do aterro.  
-        - **MCF**: refinado conforme Tabela 8 (Sanitário bem gerenciado=1.0; Semi-aeróbico bem gerenciado=0.5; Controlado/Lixão=0.4; etc.)  
-        - DOC/k calculados dinamicamente pela caracterização do resíduo no SNIS (colunas GTR1501 a GTR1507), com valores corrigidos para madeira (DOC=0.43) e alimentos (k=0.40).
+        - **MCF**: 1,0 (Sanitário), 0,4-0,8 (Controlado), <0,4 (Lixão/Precário) – conforme Tabela 8 da norma.
+        - DOC/k calculados dinamicamente pela caracterização do resíduo no SNIS (colunas GTR1501 a GTR1507).
         """)
 
 # =========================================================
-# AUTORIA E USO (MANTIDO)
+# AUTORIA E USO
 # =========================================================
 st.markdown("---")
 st.subheader("📬 Autoria e uso")
