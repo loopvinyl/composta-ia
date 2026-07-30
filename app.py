@@ -1718,8 +1718,22 @@ with tab_diagnostico:
                 })
         return pd.DataFrame(resultados)
 
-    with st.spinner("⏳ Processando dados de todos os municípios..."):
+       with st.spinner("⏳ Processando dados de todos os municípios..."):
         df_emissoes = calcular_emissoes_brutas_por_municipio(df_clean)
+
+    # =========================================================
+    # CARDS DE ESTATÍSTICAS GERAIS (LOGO APÓS O PROCESSAMENTO)
+    # =========================================================
+    total_municipios_snis = df_clean['MUNICÍPIO'].nunique()
+    total_municipios_aterro = len(df_emissoes)
+    total_com_emissao_zero = total_municipios_snis - total_municipios_aterro
+
+    st.markdown("---")
+    st.subheader("📊 Estatísticas Gerais da Base de Dados")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("🏙️ Total de municípios no SNIS", total_municipios_snis)
+    col2.metric("🗑️ Municípios que enviaram resíduos para aterro", total_municipios_aterro)
+    col3.metric("📭 Municípios sem envio para aterro (ou dados zerados)", total_com_emissao_zero)
 
     if df_emissoes.empty:
         st.warning("Nenhum município com resíduos enviados para aterro foi encontrado.")
