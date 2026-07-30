@@ -450,7 +450,7 @@ def projetar_emissao_continua(massa_anual_t, mcf, k, doc, docf, anos=20):
 #B6
 
 # =========================================================
-# CARREGAMENTO E PREPARAÇÃO DOS DADOS - VERSÃO ROBUSTA
+# CARREGAMENTO E PREPARAÇÃO DOS DADOS - VERSÃO ROBUSTA (2023 e 2024)
 # =========================================================
 @st.cache_data
 def load_data(ano):
@@ -491,13 +491,13 @@ def encontrar_coluna(df, padroes):
                 return col
     return None  # não encontrou
 
-# Mapeamento usando palavras-chave
-COL_MUNICIPIO = encontrar_coluna(df, ['município', 'municipio'])  # sem acento
+# Mapeamento usando palavras-chave (baseado nos nomes reais dos arquivos)
+COL_MUNICIPIO = encontrar_coluna(df, ['município', 'municipio', 'nom_mun'])
 COL_UF = encontrar_coluna(df, ['uf', 'estado', 'sigla'])
-COL_CODIGO_ROTA = encontrar_coluna(df, ['código rota', 'codigo rota', 'rota'])
-COL_TIPO_COLETA = encontrar_coluna(df, ['tipo de coleta', 'tipo coleta', 'coleta'])
-COL_MASSA = encontrar_coluna(df, ['massa coletada', 'massa (t)', 'massa total', 'quantidade coletada'])
-COL_DESTINO = encontrar_coluna(df, ['destino', 'unidade', 'local de destinação'])
+COL_CODIGO_ROTA = encontrar_coluna(df, ['código rota', 'codigo rota', 'rota', 'gtr1000'])
+COL_TIPO_COLETA = encontrar_coluna(df, ['tipo de coleta', 'tipo coleta', 'coleta', 'gtr1001'])
+COL_MASSA = encontrar_coluna(df, ['massa coletada', 'massa (t)', 'massa total', 'quantidade coletada', 'gtr1008'])
+COL_DESTINO = encontrar_coluna(df, ['destino', 'unidade', 'local de destinação', 'gtr1011'])
 
 # Se algum não for encontrado, exibe mensagem de erro e para
 if None in [COL_MUNICIPIO, COL_UF, COL_CODIGO_ROTA, COL_TIPO_COLETA, COL_MASSA, COL_DESTINO]:
@@ -551,6 +551,7 @@ df_clean[COL_MUNICIPIO] = df_clean[COL_MUNICIPIO].astype(str).str.strip()
 municipios = ["BRASIL – Todos os municípios"] + sorted(df_clean[COL_MUNICIPIO].unique())
 municipio = st.selectbox("Selecione o município:", municipios)
 df_mun = df_clean.copy() if municipio == municipios[0] else df_clean[df_clean[COL_MUNICIPIO] == municipio]
+
 
 #B7
 
