@@ -450,7 +450,7 @@ def projetar_emissao_continua(massa_anual_t, mcf, k, doc, docf, anos=20):
 #B6
 
 # =========================================================
-# CARREGAMENTO E PREPARAÇÃO DOS DADOS
+# CARREGAMENTO E PREPARAÇÃO DOS DADOS - VERSÃO ROBUSTA
 # =========================================================
 @st.cache_data
 def load_data(ano):
@@ -461,23 +461,50 @@ def load_data(ano):
     cols_existentes = [col for col in cols_caract if col in df_caract.columns]
     df_caract_filtrado = df_caract[cols_existentes]
     df = pd.merge(df_coleta, df_caract_filtrado, on='Cod_IBGE', how='left')
+    
+    # Tenta identificar a coluna de população (pode ser DFE0001 ou POPULACAO_TOTAL)
     if 'DFE0001' in df.columns:
         df.rename(columns={'DFE0001': 'POPULACAO_TOTAL'}, inplace=True)
+    elif 'POPULACAO_TOTAL' in df.columns:
+        pass  # já está com o nome certo
+    else:
+        # fallback: procura por 'popula' no nome
+        for col in df.columns:
+            if 'popula' in col.lower():
+                df.rename(columns={col: 'POPULACAO_TOTAL'}, inplace=True)
+                break
     return df
 
 df = load_data(ano_selecionado)
 
 # =========================================================
-# MAPEAMENTO E RENOMEAÇÃO DE COLUNAS
+# MAPEAMENTO INTELIGENTE DE COLUNAS (por nome, não por índice)
 # =========================================================
-COL_CODIGO_ROTA = df.columns[16]
-COL_MUNICIPIO = df.columns[2]
-COL_TIPO_COLETA = df.columns[17]
-COL_MASSA = df.columns[24]
-COL_DESTINO = df.columns[28]
-COL_UF = df.columns[3]
+def encontrar_coluna(df, padroes):
+    """
+    Procura no DataFrame uma coluna cujo nome contenha (case insensitive)
+    qualquer uma das strings em 'padroes'. Retorna o nome da primeira que encontrar.
+    """
+    for col in df.columns:
+        for padrao in padroes:
+            if padrao.lower() in col.lower():
+                return col
+    return None  # não encontrou
 
-# Renomeia todas para padronização (com acento em MUNICÍPIO)
+# Mapeamento usando palavras-chave
+COL_MUNICIPIO = encontrar_coluna(df, ['município', 'municipio'])  # sem acento
+COL_UF = encontrar_coluna(df, ['uf', 'estado', 'sigla'])
+COL_CODIGO_ROTA = encontrar_coluna(df, ['código rota', 'codigo rota', 'rota'])
+COL_TIPO_COLETA = encontrar_coluna(df, ['tipo de coleta', 'tipo coleta', 'coleta'])
+COL_MASSA = encontrar_coluna(df, ['massa coletada', 'massa (t)', 'massa total', 'quantidade coletada'])
+COL_DESTINO = encontrar_coluna(df, ['destino', 'unidade', 'local de destinação'])
+
+# Se algum não for encontrado, exibe mensagem de erro e para
+if None in [COL_MUNICIPIO, COL_UF, COL_CODIGO_ROTA, COL_TIPO_COLETA, COL_MASSA, COL_DESTINO]:
+    st.error("❌ Não foi possível identificar todas as colunas necessárias no arquivo. Verifique a estrutura do SNIS.")
+    st.stop()
+
+# Renomeia para padronização
 df = df.rename(columns={
     COL_MUNICIPIO: "MUNICÍPIO",
     COL_TIPO_COLETA: "TIPO_COLETA_EXECUTADA",
@@ -486,12 +513,15 @@ df = df.rename(columns={
     COL_DESTINO: "DESTINO"
 })
 
-# Atualiza as variáveis com os novos nomes
+# Atualiza as variáveis com os novos nomes (já estão padronizados)
 COL_MUNICIPIO = "MUNICÍPIO"
 COL_TIPO_COLETA = "TIPO_COLETA_EXECUTADA"
 COL_MASSA = "MASSA_COLETADA"
 COL_UF = "UF"
 COL_DESTINO = "DESTINO"
+
+# Força a coluna de massa a ser numérica (já que pode vir como texto)
+df['MASSA_COLETADA'] = pd.to_numeric(df['MASSA_COLETADA'], errors='coerce').fillna(0)
 
 # =========================================================
 # CLASSIFICAÇÃO AUXILIAR DE COLETA
