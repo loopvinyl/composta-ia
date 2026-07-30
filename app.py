@@ -1649,8 +1649,6 @@ with tab_ia:
 
 #B10
 
-#B10
-
 # =========================================================
 # ABA DIAGNÓSTICO DE EMISSÕES (com a nova seção de limiares contínuos no final)
 # =========================================================
@@ -1709,7 +1707,7 @@ with tab_diagnostico:
                     'Massa_Aterro_Anual_t': massa_total_aterro,
                     'MCF_Medio': mcf_medio,
                     'DOC_Medio': doc_pond,
-                    'DOCF_Medio': docf_pond,  # necessário para a projeção contínua
+                    'DOCF_Medio': docf_pond,
                     'k_Medio': k_pond,
                     'Emissao_Bruta_tCO2e_ano': emissao_anual,
                     'Intensidade_tCO2e_por_t': intensidade,
@@ -1718,7 +1716,7 @@ with tab_diagnostico:
                 })
         return pd.DataFrame(resultados)
 
-       with st.spinner("⏳ Processando dados de todos os municípios..."):
+    with st.spinner("⏳ Processando dados de todos os municípios..."):
         df_emissoes = calcular_emissoes_brutas_por_municipio(df_clean)
 
     # =========================================================
@@ -1752,7 +1750,6 @@ with tab_diagnostico:
         servindo como subsídio direto para a definição da **Etapa 2 (Resíduos)** do SBCE.
         """)
         
-        # Garante que a coluna é numérica
         df_limiares = df_emissoes.copy()
         df_limiares['Emissao_Bruta_tCO2e_ano'] = pd.to_numeric(df_limiares['Emissao_Bruta_tCO2e_ano'], errors='coerce').fillna(0)
         
@@ -1763,12 +1760,10 @@ with tab_diagnostico:
         col1.metric("🔹 Acima de 10.000 tCO₂e (MRV)", f"{len(df_acima_10k)} municípios")
         col2.metric("🔺 Acima de 25.000 tCO₂e (Obrigação Plena)", f"{len(df_acima_25k)} municípios")
         
-        # --- Tabela completa de municípios acima de 10k ---
         st.markdown("#### 📋 Todos os municípios com emissão > 10.000 tCO₂e/ano")
         if not df_acima_10k.empty:
             df_exibicao_10k = df_acima_10k[['MUNICÍPIO', 'UF', 'Gestao_Predominante', 'Emissao_Bruta_tCO2e_ano', 'Massa_Aterro_Anual_t']]
             df_exibicao_10k = df_exibicao_10k.sort_values('Emissao_Bruta_tCO2e_ano', ascending=False)
-            
             st.dataframe(
                 df_exibicao_10k.style.format({
                     'Emissao_Bruta_tCO2e_ano': lambda x: f"{x:,.0f}".replace(",", "."),
@@ -1780,12 +1775,10 @@ with tab_diagnostico:
         else:
             st.info("ℹ️ Nenhum município ultrapassa 10.000 tCO₂e/ano.")
         
-        # --- Destaque para os acima de 25k (prioritários) ---
         st.markdown("#### 🔺 Destaque: municípios acima de 25.000 tCO₂e/ano (obrigação plena)")
         if not df_acima_25k.empty:
             df_exibicao_25k = df_acima_25k[['MUNICÍPIO', 'UF', 'Gestao_Predominante', 'Emissao_Bruta_tCO2e_ano', 'Massa_Aterro_Anual_t']]
             df_exibicao_25k = df_exibicao_25k.sort_values('Emissao_Bruta_tCO2e_ano', ascending=False)
-            
             st.dataframe(
                 df_exibicao_25k.style.format({
                     'Emissao_Bruta_tCO2e_ano': lambda x: f"{x:,.0f}".replace(",", "."),
@@ -1798,7 +1791,7 @@ with tab_diagnostico:
         else:
             st.info("ℹ️ Nenhum município ultrapassa 25.000 tCO₂e/ano.")
         
-        # --- Filtro por estado (agora após a seção de limiares) ---
+        # --- Filtro por estado ---
         st.markdown("---")
         estados = sorted(df_emissoes['UF'].unique())
         estado_selecionado = st.selectbox("Filtrar por Estado:", ["Todos"] + estados)
@@ -1819,7 +1812,7 @@ with tab_diagnostico:
         col3.metric("📊 Intensidade Média", f"{formatar_br(media_intensidade, auto_precision=False, casas_override=2)} tCO₂e/t")
         col4.metric("⚠️ Municípios com Lixão", num_lixoes)
 
-        # --- Gráfico Pareto das emissões ---
+        # --- Gráfico Pareto ---
         st.markdown("---")
         st.markdown("#### 📉 Curva de Concentração das Emissões de Metano (Pareto)")
         st.markdown("""
@@ -1881,7 +1874,7 @@ with tab_diagnostico:
         plt.close(fig)
         st.caption("🔴 Vermelho = Lixões ou aterros precários | 🟡 Amarelo = Controlado | 🟢 Verde = Sanitário (bem gerenciado)")
 
-        # --- Gráfico Top 20 emissores per capita ---
+        # --- Gráfico Top 20 per capita ---
         st.markdown("---")
         st.subheader("🏆 Top 20 Municípios com Maior Emissão de Metano por Habitante")
         st.markdown("""
@@ -1954,7 +1947,7 @@ with tab_diagnostico:
         st.pyplot(fig3)
         plt.close(fig3)
 
-        # --- Tabela detalhada (original) ---
+        # --- Tabela detalhada ---
         st.markdown("---")
         st.subheader("📋 Detalhamento por Município (Clique no cabeçalho para ordenar)")
         tabela_diagnostico = df_filtrado.copy()
@@ -1983,7 +1976,7 @@ with tab_diagnostico:
         st.dataframe(tabela_diagnostico, use_container_width=True, height=500)
 
         # =========================================================
-        # SEÇÃO 2: PROJEÇÃO CONTÍNUA DE 20 ANOS (DEPÓSITOS ANUAIS REPETIDOS)
+        # SEÇÃO 2: PROJEÇÃO CONTÍNUA DE 20 ANOS
         # =========================================================
         st.markdown("---")
         st.subheader("📈 Projeção Contínua de Emissões (20 anos com depósitos anuais)")
@@ -1995,7 +1988,6 @@ with tab_diagnostico:
         - Este modelo é mais realista para planejamento de longo prazo, pois reflete o **passivo crescente** do aterro.
         """)
         
-        # Selecionar município para a projeção contínua
         opcoes_proj_cont = ["BRASIL – Todos os municípios"] + sorted(df_emissoes['MUNICÍPIO'].unique())
         municipio_proj_cont = st.selectbox(
             "Selecione o município (ou Brasil) para a projeção contínua:",
@@ -2007,7 +1999,6 @@ with tab_diagnostico:
             if municipio_proj_cont == "BRASIL – Todos os municípios":
                 df_mun_proj_cont = df_emissoes.copy()
                 massa_anual = df_mun_proj_cont['Massa_Aterro_Anual_t'].sum()
-                # Média ponderada dos parâmetros
                 mcf_medio = (df_mun_proj_cont['Massa_Aterro_Anual_t'] * df_mun_proj_cont['MCF_Medio']).sum() / massa_anual if massa_anual > 0 else 0.8
                 doc_medio = (df_mun_proj_cont['Massa_Aterro_Anual_t'] * df_mun_proj_cont['DOC_Medio']).sum() / massa_anual if massa_anual > 0 else 0.15
                 docf_medio = (df_mun_proj_cont['Massa_Aterro_Anual_t'] * df_mun_proj_cont['DOCF_Medio']).sum() / massa_anual if massa_anual > 0 else 0.5
@@ -2022,42 +2013,30 @@ with tab_diagnostico:
                 k_medio = df_mun_proj_cont['k_Medio'].iloc[0]
                 titulo_proj_cont = municipio_proj_cont
             
-            # Exibe a massa usada para depuração
             st.info(f"📌 **Massa anual considerada:** {formatar_br(massa_anual, auto_precision=False, casas_override=0)} t ({formatar_br(massa_anual/1000, auto_precision=False, casas_override=0)} kt) — MCF médio: {mcf_medio:.2f}, k médio: {k_medio:.4f}")
             
             if massa_anual > 0 and mcf_medio > 0:
                 df_proj_cont = projetar_emissao_continua(massa_anual, mcf_medio, k_medio, doc_medio, docf_medio)
                 
-                # Gráfico
                 fig_cont, ax_cont = plt.subplots(figsize=(12, 6))
-                
-                ax_cont.plot(df_proj_cont['Ano'], df_proj_cont['Emissao_Acumulada'], 
-                            'o-', color='blue', linewidth=2, label='Emissão Acumulada (tCO₂e)')
-                ax_cont.plot(df_proj_cont['Ano'], df_proj_cont['Emissao_Anual'], 
-                            's-', color='orange', linewidth=2, label='Emissão Anual (tCO₂e)')
-                
+                ax_cont.plot(df_proj_cont['Ano'], df_proj_cont['Emissao_Acumulada'], 'o-', color='blue', linewidth=2, label='Emissão Acumulada (tCO₂e)')
+                ax_cont.plot(df_proj_cont['Ano'], df_proj_cont['Emissao_Anual'], 's-', color='orange', linewidth=2, label='Emissão Anual (tCO₂e)')
                 ax_cont.set_xlabel('Ano')
                 ax_cont.set_ylabel('Emissões (tCO₂e)')
                 ax_cont.set_title(f'Projeção Contínua de 20 anos – {titulo_proj_cont}')
                 ax_cont.legend()
                 ax_cont.grid(True, linestyle='--', alpha=0.3)
-                
-                # Formatação do eixo Y
                 ax_cont.yaxis.set_major_formatter(FuncFormatter(formatar_eixo_abreviado))
-                
-                # Anotar valor final
                 valor_final = df_proj_cont['Emissao_Acumulada'].iloc[-1]
                 ax_cont.annotate(f'Total acumulado: {formatar_br(valor_final, auto_precision=False, casas_override=0)} tCO₂e',
                                 xy=(df_proj_cont['Ano'].iloc[-1], valor_final),
                                 xytext=(df_proj_cont['Ano'].iloc[-1] - 2, valor_final * 0.8),
                                 arrowprops=dict(arrowstyle='->', color='gray'),
                                 fontsize=10, color='darkblue')
-                
                 plt.tight_layout()
                 st.pyplot(fig_cont)
                 plt.close(fig_cont)
                 
-                # Tabela com os dados
                 with st.expander("📋 Ver dados anuais da projeção contínua"):
                     st.dataframe(
                         df_proj_cont.style.format({
@@ -2068,7 +2047,6 @@ with tab_diagnostico:
                     )
                     st.caption(f"📌 Massa depositada anualmente: {formatar_br(massa_anual, auto_precision=False, casas_override=0)} t | MCF: {mcf_medio:.2f} | k: {k_medio:.3f} | DOC: {doc_medio:.3f}")
                 
-                # Comparação com o cenário de apenas 1 ano (ATUALIZADO COM kt)
                 st.markdown("**🔍 Comparação com o cenário atual (apenas 1 ano de depósito):**")
                 emissao_media_anual = df_mun_proj_cont['Emissao_Bruta_tCO2e_ano'].mean() if municipio_proj_cont != "BRASIL – Todos os municípios" else df_mun_proj_cont['Emissao_Bruta_tCO2e_ano'].sum()
                 
@@ -2076,20 +2054,13 @@ with tab_diagnostico:
                 with col1:
                     valor_t = emissao_media_anual
                     valor_kt = valor_t / 1000
-                    st.metric(
-                        "📊 Cenário atual (média de 1 depósito)", 
-                        f"{formatar_br(valor_t, auto_precision=False, casas_override=0)} tCO₂e/ano"
-                    )
+                    st.metric("📊 Cenário atual (média de 1 depósito)", f"{formatar_br(valor_t, auto_precision=False, casas_override=0)} tCO₂e/ano")
                     st.caption(f"= {formatar_br(valor_kt, auto_precision=False, casas_override=2)} ktCO₂e/ano  —  limiares: 10 kt (MRV) e 25 kt (obrigação plena)")
-                
                 with col2:
                     emissao_ano_final = df_proj_cont['Emissao_Anual'].iloc[-1]
                     valor_t2 = emissao_ano_final
                     valor_kt2 = valor_t2 / 1000
-                    st.metric(
-                        "📈 Cenário contínuo (depósito anual repetido)", 
-                        f"{formatar_br(valor_t2, auto_precision=False, casas_override=0)} tCO₂e/ano"
-                    )
+                    st.metric("📈 Cenário contínuo (depósito anual repetido)", f"{formatar_br(valor_t2, auto_precision=False, casas_override=0)} tCO₂e/ano")
                     st.caption(f"= {formatar_br(valor_kt2, auto_precision=False, casas_override=2)} ktCO₂e/ano  —  no ano {df_proj_cont['Ano'].iloc[-1]} com depósitos anuais repetidos")
                 
                 st.info(f"💡 **Interpretação:** Se o município continuar depositando **{formatar_br(massa_anual, auto_precision=False, casas_override=0)} t/ano** no aterro, a emissão anual total chegará a **{formatar_br(valor_t2, auto_precision=False, casas_override=0)} tCO₂e/ano ({formatar_br(valor_kt2, auto_precision=False, casas_override=2)} ktCO₂e/ano)** em 20 anos, muito superior à média de **{formatar_br(valor_t, auto_precision=False, casas_override=0)} tCO₂e/ano ({formatar_br(valor_kt, auto_precision=False, casas_override=2)} ktCO₂e/ano)** calculada para um único depósito. Isso demonstra o **efeito multiplicador** do passivo acumulado e a importância de desviar resíduos para compostagem desde agora.")
@@ -2097,8 +2068,7 @@ with tab_diagnostico:
                 st.warning("Dados insuficientes para a projeção contínua (massa ou MCF zero).")
 
         # =========================================================
-        # SEÇÃO 3: LIMIARES DO SBCE COM BASE NA PROJEÇÃO CONTÍNUA (DEPÓSITOS ANUAIS REPETIDOS)
-        # INSERIDA AQUI, APÓS A PROJEÇÃO CONTÍNUA, CONFORME SOLICITADO
+        # SEÇÃO 3: LIMIARES DO SBCE – CENÁRIO CONTÍNUO
         # =========================================================
         st.markdown("---")
         st.subheader("⚖️ Municípios acima dos Limiares do SBCE – **Cenário Contínuo** (depósitos anuais repetidos)")
@@ -2113,23 +2083,17 @@ with tab_diagnostico:
         - **> 25.000 tCO₂e/ano (emissão no ano 20)**: Obrigação plena.
         """)
         
-        # Calcular a emissão no ano 20 para cada município (cenário contínuo)
         df_continua = df_emissoes.copy()
         
-        # Função para calcular a emissão anual no ano N (usando a fórmula simplificada)
         def calcular_emissao_continua_ano_n(massa_anual, mcf, doc, docf, k, n=20):
             if massa_anual <= 0 or mcf <= 0:
                 return 0.0
-            # Fator de emissão por tonelada (tCO2e por t de resíduo)
             ch4_pot_kg = (doc * docf * mcf * F_METHANE_FRACTION * (16/12) *
                           (1 - OX_SOIL_COVER) * PHI_APPLICATION_B)
-            fator_tco2_por_ton = ch4_pot_kg * GWP_CH4  # tCO2e por tonelada
-            
-            # Emissão no ano n = massa_anual * fator * (1 - exp(-k * n))
+            fator_tco2_por_ton = ch4_pot_kg * GWP_CH4
             emissao = massa_anual * fator_tco2_por_ton * (1 - np.exp(-k * n))
             return emissao
         
-        # Aplica para cada município
         df_continua['Emissao_Continua_Ano20'] = df_continua.apply(
             lambda row: calcular_emissao_continua_ano_n(
                 row['Massa_Aterro_Anual_t'],
@@ -2142,7 +2106,6 @@ with tab_diagnostico:
             axis=1
         )
         
-        # Filtra os que ultrapassam os limiares
         df_acima_10k_cont = df_continua[df_continua['Emissao_Continua_Ano20'] > 10000].copy()
         df_acima_25k_cont = df_continua[df_continua['Emissao_Continua_Ano20'] > 25000].copy()
         
@@ -2150,12 +2113,10 @@ with tab_diagnostico:
         col1.metric("🔹 Acima de 10.000 tCO₂e (MRV) – Cenário Contínuo", f"{len(df_acima_10k_cont)} municípios")
         col2.metric("🔺 Acima de 25.000 tCO₂e (Obrigação Plena) – Cenário Contínuo", f"{len(df_acima_25k_cont)} municípios")
         
-        # --- Tabela completa de municípios acima de 10k (cenário contínuo) ---
         st.markdown("#### 📋 Todos os municípios com emissão > 10.000 tCO₂e/ano (Cenário Contínuo – ano 20)")
         if not df_acima_10k_cont.empty:
             df_exibicao_10k_cont = df_acima_10k_cont[['MUNICÍPIO', 'UF', 'Gestao_Predominante', 'Emissao_Continua_Ano20', 'Massa_Aterro_Anual_t']]
             df_exibicao_10k_cont = df_exibicao_10k_cont.sort_values('Emissao_Continua_Ano20', ascending=False)
-            
             st.dataframe(
                 df_exibicao_10k_cont.style.format({
                     'Emissao_Continua_Ano20': lambda x: f"{x:,.0f}".replace(",", "."),
@@ -2168,12 +2129,10 @@ with tab_diagnostico:
         else:
             st.info("ℹ️ Nenhum município ultrapassa 10.000 tCO₂e/ano no cenário contínuo.")
         
-        # --- Destaque para os acima de 25k (prioritários) ---
         st.markdown("#### 🔺 Destaque: municípios acima de 25.000 tCO₂e/ano (obrigação plena) – Cenário Contínuo")
         if not df_acima_25k_cont.empty:
             df_exibicao_25k_cont = df_acima_25k_cont[['MUNICÍPIO', 'UF', 'Gestao_Predominante', 'Emissao_Continua_Ano20', 'Massa_Aterro_Anual_t']]
             df_exibicao_25k_cont = df_exibicao_25k_cont.sort_values('Emissao_Continua_Ano20', ascending=False)
-            
             st.dataframe(
                 df_exibicao_25k_cont.style.format({
                     'Emissao_Continua_Ano20': lambda x: f"{x:,.0f}".replace(",", "."),
@@ -2186,7 +2145,6 @@ with tab_diagnostico:
         else:
             st.info("ℹ️ Nenhum município ultrapassa 25.000 tCO₂e/ano no cenário contínuo.")
         
-        # --- Comparação com o cenário atual (1 depósito) ---
         st.markdown("#### 📊 Comparação entre cenários")
         col1, col2, col3 = st.columns(3)
         with col1:
