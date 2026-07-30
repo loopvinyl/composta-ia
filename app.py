@@ -1637,7 +1637,7 @@ with tab_ia:
 #B10
 
 # =========================================================
-# ABA DIAGNÓSTICO DE EMISSÕES (com a nova seção de limiares no início e projeção contínua no final)
+# ABA DIAGNÓSTICO DE EMISSÕES (com a nova seção de limiares contínuos no final)
 # =========================================================
 with tab_diagnostico:
     st.header("🔥 Diagnóstico de Emissões de Metano (Baseline)")
@@ -1694,7 +1694,7 @@ with tab_diagnostico:
                     'Massa_Aterro_Anual_t': massa_total_aterro,
                     'MCF_Medio': mcf_medio,
                     'DOC_Medio': doc_pond,
-                    'DOCF_Medio': docf_pond,  # <-- NOVO: necessário para a projeção contínua
+                    'DOCF_Medio': docf_pond,  # necessário para a projeção contínua
                     'k_Medio': k_pond,
                     'Emissao_Bruta_tCO2e_ano': emissao_anual,
                     'Intensidade_tCO2e_por_t': intensidade,
@@ -1710,7 +1710,7 @@ with tab_diagnostico:
         st.warning("Nenhum município com resíduos enviados para aterro foi encontrado.")
     else:
         # =========================================================
-        # SEÇÃO: LIMIARES DO SBCE (10k e 25k) - AGORA NO INÍCIO DA ABA
+        # SEÇÃO 1: LIMIARES DO SBCE (10k e 25k) - CENÁRIO ATUAL (1 DEPÓSITO)
         # =========================================================
         st.markdown("---")
         st.subheader("⚖️ Municípios acima dos Limiares do SBCE (10.000 e 25.000 tCO₂e/ano)")
@@ -1768,111 +1768,6 @@ with tab_diagnostico:
             st.caption(f"📌 Total de {len(df_acima_25k)} municípios que, se estivessem no SBCE hoje, já teriam que entregar CBEs.")
         else:
             st.info("ℹ️ Nenhum município ultrapassa 25.000 tCO₂e/ano.")
-
-        # =========================================================
-        # NOVA SEÇÃO: LIMIARES DO SBCE COM BASE NA PROJEÇÃO CONTÍNUA (DEPÓSITOS ANUAIS REPETIDOS)
-        # =========================================================
-        st.markdown("---")
-        st.subheader("⚖️ Municípios acima dos Limiares do SBCE – **Cenário Contínuo** (depósitos anuais repetidos)")
-        st.markdown("""
-        **Este cenário considera que o município continuará depositando a MESMA quantidade de resíduos no aterro TODOS OS ANOS.**
-        
-        A emissão calculada é a **emissão anual no 20º ano** de operação contínua, que reflete o **passivo acumulado** de todas as camadas de resíduos depositadas ao longo do tempo.
-        
-        Este é o cenário mais realista para o planejamento de longo prazo e mostra que **muitos municípios já estariam acima dos limiares legais** se considerarmos o efeito multiplicador do acúmulo de resíduos.
-        
-        - **> 10.000 tCO₂e/ano (emissão no ano 20)**: Obrigação de MRV.
-        - **> 25.000 tCO₂e/ano (emissão no ano 20)**: Obrigação plena.
-        """)
-        
-        # Calcular a emissão no ano 20 para cada município (cenário contínuo)
-        df_continua = df_emissoes.copy()
-        
-        # Função para calcular a emissão anual no ano N (usando a fórmula simplificada)
-        def calcular_emissao_continua_ano_n(massa_anual, mcf, doc, docf, k, n=20):
-            if massa_anual <= 0 or mcf <= 0:
-                return 0.0
-            # Fator de emissão por tonelada (tCO2e por t de resíduo)
-            ch4_pot_kg = (doc * docf * mcf * F_METHANE_FRACTION * (16/12) *
-                          (1 - OX_SOIL_COVER) * PHI_APPLICATION_B)
-            fator_tco2_por_ton = ch4_pot_kg * GWP_CH4  # tCO2e por tonelada
-            
-            # Emissão no ano n = massa_anual * fator * (1 - exp(-k * n))
-            emissao = massa_anual * fator_tco2_por_ton * (1 - np.exp(-k * n))
-            return emissao
-        
-        # Aplica para cada município
-        df_continua['Emissao_Continua_Ano20'] = df_continua.apply(
-            lambda row: calcular_emissao_continua_ano_n(
-                row['Massa_Aterro_Anual_t'],
-                row['MCF_Medio'],
-                row['DOC_Medio'],
-                row['DOCF_Medio'],
-                row['k_Medio'],
-                n=20
-            ),
-            axis=1
-        )
-        
-        # Filtra os que ultrapassam os limiares
-        df_acima_10k_cont = df_continua[df_continua['Emissao_Continua_Ano20'] > 10000].copy()
-        df_acima_25k_cont = df_continua[df_continua['Emissao_Continua_Ano20'] > 25000].copy()
-        
-        col1, col2 = st.columns(2)
-        col1.metric("🔹 Acima de 10.000 tCO₂e (MRV) – Cenário Contínuo", f"{len(df_acima_10k_cont)} municípios")
-        col2.metric("🔺 Acima de 25.000 tCO₂e (Obrigação Plena) – Cenário Contínuo", f"{len(df_acima_25k_cont)} municípios")
-        
-        # --- Tabela completa de municípios acima de 10k (cenário contínuo) ---
-        st.markdown("#### 📋 Todos os municípios com emissão > 10.000 tCO₂e/ano (Cenário Contínuo – ano 20)")
-        if not df_acima_10k_cont.empty:
-            df_exibicao_10k_cont = df_acima_10k_cont[['MUNICÍPIO', 'UF', 'Gestao_Predominante', 'Emissao_Continua_Ano20', 'Massa_Aterro_Anual_t']]
-            df_exibicao_10k_cont = df_exibicao_10k_cont.sort_values('Emissao_Continua_Ano20', ascending=False)
-            
-            st.dataframe(
-                df_exibicao_10k_cont.style.format({
-                    'Emissao_Continua_Ano20': lambda x: f"{x:,.0f}".replace(",", "."),
-                    'Massa_Aterro_Anual_t': lambda x: f"{x:,.0f}".replace(",", ".")
-                }),
-                use_container_width=True,
-                height=400
-            )
-            st.caption("📌 Valores em tCO₂e/ano no 20º ano de operação contínua (depósitos anuais repetidos).")
-        else:
-            st.info("ℹ️ Nenhum município ultrapassa 10.000 tCO₂e/ano no cenário contínuo.")
-        
-        # --- Destaque para os acima de 25k (prioritários) ---
-        st.markdown("#### 🔺 Destaque: municípios acima de 25.000 tCO₂e/ano (obrigação plena) – Cenário Contínuo")
-        if not df_acima_25k_cont.empty:
-            df_exibicao_25k_cont = df_acima_25k_cont[['MUNICÍPIO', 'UF', 'Gestao_Predominante', 'Emissao_Continua_Ano20', 'Massa_Aterro_Anual_t']]
-            df_exibicao_25k_cont = df_exibicao_25k_cont.sort_values('Emissao_Continua_Ano20', ascending=False)
-            
-            st.dataframe(
-                df_exibicao_25k_cont.style.format({
-                    'Emissao_Continua_Ano20': lambda x: f"{x:,.0f}".replace(",", "."),
-                    'Massa_Aterro_Anual_t': lambda x: f"{x:,.0f}".replace(",", ".")
-                }),
-                use_container_width=True,
-                height=300
-            )
-            st.caption(f"📌 Total de {len(df_acima_25k_cont)} municípios que, no cenário contínuo, já teriam que entregar CBEs no 20º ano.")
-        else:
-            st.info("ℹ️ Nenhum município ultrapassa 25.000 tCO₂e/ano no cenário contínuo.")
-        
-        # --- Comparação entre cenários ---
-        st.markdown("#### 📊 Comparação entre cenários")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Cenário atual (1 depósito)", f"{len(df_acima_10k)} municípios > 10k")
-        with col2:
-            st.metric("Cenário contínuo (ano 20)", f"{len(df_acima_10k_cont)} municípios > 10k")
-        with col3:
-            diferenca = len(df_acima_10k_cont) - len(df_acima_10k)
-            st.metric("Diferença", f"+{diferenca}" if diferenca > 0 else f"{diferenca}", delta=f"{diferenca}" if diferenca != 0 else None)
-        
-        st.caption("""
-        💡 **Interpretação:** O cenário contínuo mostra que, se o município continuar depositando a mesma quantidade de resíduos ano após ano, o passivo acumulado fará com que **muitos mais municípios ultrapassem os limiares legais** no 20º ano. 
-        Isso reforça a urgência de políticas de desvio de resíduos (compostagem, reciclagem, captura de biogás) desde agora.
-        """)
         
         # --- Filtro por estado (agora após a seção de limiares) ---
         st.markdown("---")
@@ -2059,7 +1954,7 @@ with tab_diagnostico:
         st.dataframe(tabela_diagnostico, use_container_width=True, height=500)
 
         # =========================================================
-        # NOVA SEÇÃO: PROJEÇÃO CONTÍNUA DE 20 ANOS (DEPÓSITOS ANUAIS REPETIDOS)
+        # SEÇÃO 2: PROJEÇÃO CONTÍNUA DE 20 ANOS (DEPÓSITOS ANUAIS REPETIDOS)
         # =========================================================
         st.markdown("---")
         st.subheader("📈 Projeção Contínua de Emissões (20 anos com depósitos anuais)")
@@ -2141,7 +2036,7 @@ with tab_diagnostico:
                     )
                     st.caption(f"📌 Massa depositada anualmente: {formatar_br(massa_anual, auto_precision=False, casas_override=0)} t | MCF: {mcf_medio:.2f} | k: {k_medio:.3f} | DOC: {doc_medio:.3f}")
                 
-                # Comparação com o cenário de apenas 1 ano
+                # Comparação com o cenário de apenas 1 ano (ATUALIZADO COM kt)
                 st.markdown("**🔍 Comparação com o cenário atual (apenas 1 ano de depósito):**")
                 emissao_media_anual = df_mun_proj_cont['Emissao_Bruta_tCO2e_ano'].mean() if municipio_proj_cont != "BRASIL – Todos os municípios" else df_mun_proj_cont['Emissao_Bruta_tCO2e_ano'].sum()
                 
@@ -2169,6 +2064,115 @@ with tab_diagnostico:
             else:
                 st.warning("Dados insuficientes para a projeção contínua (massa ou MCF zero).")
 
+        # =========================================================
+        # SEÇÃO 3: LIMIARES DO SBCE COM BASE NA PROJEÇÃO CONTÍNUA (DEPÓSITOS ANUAIS REPETIDOS)
+        # INSERIDA AQUI, APÓS A PROJEÇÃO CONTÍNUA, CONFORME SOLICITADO
+        # =========================================================
+        st.markdown("---")
+        st.subheader("⚖️ Municípios acima dos Limiares do SBCE – **Cenário Contínuo** (depósitos anuais repetidos)")
+        st.markdown("""
+        **Este cenário considera que o município continuará depositando a MESMA quantidade de resíduos no aterro TODOS OS ANOS.**
+        
+        A emissão calculada é a **emissão anual no 20º ano** de operação contínua, que reflete o **passivo acumulado** de todas as camadas de resíduos depositadas ao longo do tempo.
+        
+        Este é o cenário mais realista para o planejamento de longo prazo e mostra que **muitos municípios já estariam acima dos limiares legais** se considerarmos o efeito multiplicador do acúmulo de resíduos.
+        
+        - **> 10.000 tCO₂e/ano (emissão no ano 20)**: Obrigação de MRV.
+        - **> 25.000 tCO₂e/ano (emissão no ano 20)**: Obrigação plena.
+        """)
+        
+        # Calcular a emissão no ano 20 para cada município (cenário contínuo)
+        df_continua = df_emissoes.copy()
+        
+        # Função para calcular a emissão anual no ano N (usando a fórmula simplificada)
+        def calcular_emissao_continua_ano_n(massa_anual, mcf, doc, docf, k, n=20):
+            if massa_anual <= 0 or mcf <= 0:
+                return 0.0
+            # Fator de emissão por tonelada (tCO2e por t de resíduo)
+            ch4_pot_kg = (doc * docf * mcf * F_METHANE_FRACTION * (16/12) *
+                          (1 - OX_SOIL_COVER) * PHI_APPLICATION_B)
+            fator_tco2_por_ton = ch4_pot_kg * GWP_CH4  # tCO2e por tonelada
+            
+            # Emissão no ano n = massa_anual * fator * (1 - exp(-k * n))
+            emissao = massa_anual * fator_tco2_por_ton * (1 - np.exp(-k * n))
+            return emissao
+        
+        # Aplica para cada município
+        df_continua['Emissao_Continua_Ano20'] = df_continua.apply(
+            lambda row: calcular_emissao_continua_ano_n(
+                row['Massa_Aterro_Anual_t'],
+                row['MCF_Medio'],
+                row['DOC_Medio'],
+                row['DOCF_Medio'],
+                row['k_Medio'],
+                n=20
+            ),
+            axis=1
+        )
+        
+        # Filtra os que ultrapassam os limiares
+        df_acima_10k_cont = df_continua[df_continua['Emissao_Continua_Ano20'] > 10000].copy()
+        df_acima_25k_cont = df_continua[df_continua['Emissao_Continua_Ano20'] > 25000].copy()
+        
+        col1, col2 = st.columns(2)
+        col1.metric("🔹 Acima de 10.000 tCO₂e (MRV) – Cenário Contínuo", f"{len(df_acima_10k_cont)} municípios")
+        col2.metric("🔺 Acima de 25.000 tCO₂e (Obrigação Plena) – Cenário Contínuo", f"{len(df_acima_25k_cont)} municípios")
+        
+        # --- Tabela completa de municípios acima de 10k (cenário contínuo) ---
+        st.markdown("#### 📋 Todos os municípios com emissão > 10.000 tCO₂e/ano (Cenário Contínuo – ano 20)")
+        if not df_acima_10k_cont.empty:
+            df_exibicao_10k_cont = df_acima_10k_cont[['MUNICÍPIO', 'UF', 'Gestao_Predominante', 'Emissao_Continua_Ano20', 'Massa_Aterro_Anual_t']]
+            df_exibicao_10k_cont = df_exibicao_10k_cont.sort_values('Emissao_Continua_Ano20', ascending=False)
+            
+            st.dataframe(
+                df_exibicao_10k_cont.style.format({
+                    'Emissao_Continua_Ano20': lambda x: f"{x:,.0f}".replace(",", "."),
+                    'Massa_Aterro_Anual_t': lambda x: f"{x:,.0f}".replace(",", ".")
+                }),
+                use_container_width=True,
+                height=400
+            )
+            st.caption("📌 Valores em tCO₂e/ano no 20º ano de operação contínua (depósitos anuais repetidos).")
+        else:
+            st.info("ℹ️ Nenhum município ultrapassa 10.000 tCO₂e/ano no cenário contínuo.")
+        
+        # --- Destaque para os acima de 25k (prioritários) ---
+        st.markdown("#### 🔺 Destaque: municípios acima de 25.000 tCO₂e/ano (obrigação plena) – Cenário Contínuo")
+        if not df_acima_25k_cont.empty:
+            df_exibicao_25k_cont = df_acima_25k_cont[['MUNICÍPIO', 'UF', 'Gestao_Predominante', 'Emissao_Continua_Ano20', 'Massa_Aterro_Anual_t']]
+            df_exibicao_25k_cont = df_exibicao_25k_cont.sort_values('Emissao_Continua_Ano20', ascending=False)
+            
+            st.dataframe(
+                df_exibicao_25k_cont.style.format({
+                    'Emissao_Continua_Ano20': lambda x: f"{x:,.0f}".replace(",", "."),
+                    'Massa_Aterro_Anual_t': lambda x: f"{x:,.0f}".replace(",", ".")
+                }),
+                use_container_width=True,
+                height=300
+            )
+            st.caption(f"📌 Total de {len(df_acima_25k_cont)} municípios que, no cenário contínuo, já teriam que entregar CBEs no 20º ano.")
+        else:
+            st.info("ℹ️ Nenhum município ultrapassa 25.000 tCO₂e/ano no cenário contínuo.")
+        
+        # --- Comparação com o cenário atual (1 depósito) ---
+        st.markdown("#### 📊 Comparação entre cenários")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Cenário atual (1 depósito)", f"{len(df_acima_10k)} municípios > 10k")
+        with col2:
+            st.metric("Cenário contínuo (ano 20)", f"{len(df_acima_10k_cont)} municípios > 10k")
+        with col3:
+            diferenca = len(df_acima_10k_cont) - len(df_acima_10k)
+            st.metric("Diferença", f"+{diferenca}" if diferenca > 0 else f"{diferenca}", delta=f"{diferenca}" if diferenca != 0 else None)
+        
+        st.caption("""
+        💡 **Interpretação:** O cenário contínuo mostra que, se o município continuar depositando a mesma quantidade de resíduos ano após ano, o passivo acumulado fará com que **muitos mais municípios ultrapassem os limiares legais** no 20º ano. 
+        Isso reforça a urgência de políticas de desvio de resíduos (compostagem, reciclagem, captura de biogás) desde agora.
+        """)
+
+        # =========================================================
+        # LEGENDA FINAL
+        # =========================================================
         st.markdown("---")
         st.caption("""
         **Metodologia:** UNFCCC A6.4-AMT-003 (Application B) – Baseline de aterro.  
@@ -2177,6 +2181,7 @@ with tab_diagnostico:
         - **Intensidade**: emissão média anual por tonelada de resíduo depositado. Quanto menor, melhor a gestão do aterro.  
         - **MCF**: 1,0 (Sanitário), 0,4-0,8 (Controlado), <0,4 (Lixão/Precário) – conforme Tabela 8 da norma.
         - DOC/k calculados dinamicamente pela caracterização do resíduo no SNIS (colunas GTR1501 a GTR1507).
+        - **Cenário Contínuo**: considera depósitos anuais repetidos, calculando a emissão no 20º ano de operação.
         """)
 
 #B11
