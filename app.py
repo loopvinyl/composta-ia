@@ -1537,7 +1537,7 @@ with tab_ia:
     """)
 
 # =========================================================
-# ABA DIAGNÓSTICO DE EMISSÕES (com a nova seção de limiares no início)
+# ABA DIAGNÓSTICO DE EMISSÕES
 # =========================================================
 with tab_diagnostico:
     st.header("🔥 Diagnóstico de Emissões de Metano (Baseline)")
@@ -1608,68 +1608,6 @@ with tab_diagnostico:
     if df_emissoes.empty:
         st.warning("Nenhum município com resíduos enviados para aterro foi encontrado.")
     else:
-        # =========================================================
-        # NOVO: FILTRO POR LIMIARES SBCE (10k e 25k) - AGORA NO INÍCIO DA ABA
-        # =========================================================
-        st.markdown("---")
-        st.subheader("⚖️ Municípios acima dos Limiares do SBCE (10.000 e 25.000 tCO₂e/ano)")
-        st.markdown("""
-        A Lei do SBCE (15.042/2024) estabelece:
-        - **> 10.000 tCO₂e/ano**: Obrigação de MRV (Plano de Monitoramento e Relato).
-        - **> 25.000 tCO₂e/ano**: Obrigação plena (MRV + entrega de Cotas Brasileiras de Emissão - CBEs).
-        
-        Abaixo estão listados **todos os municípios** que, com base nos dados atuais do SNIS, já ultrapassariam o limiar de 10.000 tCO₂e/ano,
-        servindo como subsídio direto para a definição da **Etapa 2 (Resíduos)** do SBCE.
-        """)
-        
-        # Garante que a coluna é numérica
-        df_limiares = df_emissoes.copy()
-        df_limiares['Emissao_Bruta_tCO2e_ano'] = pd.to_numeric(df_limiares['Emissao_Bruta_tCO2e_ano'], errors='coerce').fillna(0)
-        
-        df_acima_10k = df_limiares[df_limiares['Emissao_Bruta_tCO2e_ano'] > 10000].copy()
-        df_acima_25k = df_limiares[df_limiares['Emissao_Bruta_tCO2e_ano'] > 25000].copy()
-        
-        col1, col2 = st.columns(2)
-        col1.metric("🔹 Acima de 10.000 tCO₂e (MRV)", f"{len(df_acima_10k)} municípios")
-        col2.metric("🔺 Acima de 25.000 tCO₂e (Obrigação Plena)", f"{len(df_acima_25k)} municípios")
-        
-        # --- Tabela completa de municípios acima de 10k ---
-        st.markdown("#### 📋 Todos os municípios com emissão > 10.000 tCO₂e/ano")
-        if not df_acima_10k.empty:
-            df_exibicao_10k = df_acima_10k[['MUNICÍPIO', 'UF', 'Gestao_Predominante', 'Emissao_Bruta_tCO2e_ano', 'Massa_Aterro_Anual_t']]
-            df_exibicao_10k = df_exibicao_10k.sort_values('Emissao_Bruta_tCO2e_ano', ascending=False)
-            
-            st.dataframe(
-                df_exibicao_10k.style.format({
-                    'Emissao_Bruta_tCO2e_ano': lambda x: f"{x:,.0f}".replace(",", "."),
-                    'Massa_Aterro_Anual_t': lambda x: f"{x:,.0f}".replace(",", ".")
-                }),
-                use_container_width=True,
-                height=400
-            )
-        else:
-            st.info("ℹ️ Nenhum município ultrapassa 10.000 tCO₂e/ano.")
-        
-        # --- Destaque para os acima de 25k (prioritários) ---
-        st.markdown("#### 🔺 Destaque: municípios acima de 25.000 tCO₂e/ano (obrigação plena)")
-        if not df_acima_25k.empty:
-            df_exibicao_25k = df_acima_25k[['MUNICÍPIO', 'UF', 'Gestao_Predominante', 'Emissao_Bruta_tCO2e_ano', 'Massa_Aterro_Anual_t']]
-            df_exibicao_25k = df_exibicao_25k.sort_values('Emissao_Bruta_tCO2e_ano', ascending=False)
-            
-            st.dataframe(
-                df_exibicao_25k.style.format({
-                    'Emissao_Bruta_tCO2e_ano': lambda x: f"{x:,.0f}".replace(",", "."),
-                    'Massa_Aterro_Anual_t': lambda x: f"{x:,.0f}".replace(",", ".")
-                }),
-                use_container_width=True,
-                height=300
-            )
-            st.caption(f"📌 Total de {len(df_acima_25k)} municípios que, se estivessem no SBCE hoje, já teriam que entregar CBEs.")
-        else:
-            st.info("ℹ️ Nenhum município ultrapassa 25.000 tCO₂e/ano.")
-        
-        # --- Filtro por estado (agora após a seção de limiares) ---
-        st.markdown("---")
         estados = sorted(df_emissoes['UF'].unique())
         estado_selecionado = st.selectbox("Filtrar por Estado:", ["Todos"] + estados)
         if estado_selecionado != "Todos":
@@ -1677,7 +1615,6 @@ with tab_diagnostico:
         else:
             df_filtrado = df_emissoes
 
-        # --- Métricas gerais (após filtro) ---
         total_emissoes = df_filtrado['Emissao_Bruta_tCO2e_ano'].sum()
         total_massa = df_filtrado['Massa_Aterro_Anual_t'].sum()
         media_intensidade = df_filtrado['Intensidade_tCO2e_por_t'].mean()
@@ -1824,7 +1761,7 @@ with tab_diagnostico:
         st.pyplot(fig3)
         plt.close(fig3)
 
-        # --- Tabela detalhada (original) ---
+        # --- Tabela detalhada ---
         st.markdown("---")
         st.subheader("📋 Detalhamento por Município (Clique no cabeçalho para ordenar)")
         tabela_diagnostico = df_filtrado.copy()
