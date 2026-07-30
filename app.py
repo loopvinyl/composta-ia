@@ -593,7 +593,7 @@ tab_tradicional, tab_ia, tab_diagnostico = st.tabs([
 #B8
 
 # =========================================================
-# ABA TRADICIONAL (mantida integralmente)
+# ABA TRADICIONAL (com cards de estatísticas no Panorama Nacional)
 # =========================================================
 with tab_tradicional:
     st.subheader(f"🇧🇷 Brasil — Síntese Nacional de RSU ({ano_selecionado})" if municipio == municipios[0] else f"📍 {municipio} - Ano {ano_selecionado}")
@@ -602,6 +602,27 @@ with tab_tradicional:
         st.markdown("---")
         st.markdown("### 📊 Panorama Nacional de Geração de Resíduos")
         st.markdown(f"**Dados do SNIS – {ano_selecionado}**")
+
+        # =========================================================
+        # CARDS DE ESTATÍSTICAS GERAIS (ADICIONADOS AQUI)
+        # =========================================================
+        total_municipios_snis = df_clean['MUNICÍPIO'].nunique()
+        
+        # Calcula quantos municípios têm pelo menos uma rota com destino que é aterro (MCF > 0)
+        df_temp = df_clean.copy()
+        df_temp['MCF'] = df_temp[COL_DESTINO].apply(
+            lambda x: determinar_mcf_por_destino(x, 'organico') if pd.notna(x) else 0.0
+        )
+        municipios_com_aterro = df_temp[df_temp['MCF'] > 0]['MUNICÍPIO'].nunique()
+        municipios_sem_aterro = total_municipios_snis - municipios_com_aterro
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("🏙️ Total de municípios no SNIS", total_municipios_snis)
+        col2.metric("🗑️ Municípios com resíduos enviados para aterro", municipios_com_aterro)
+        col3.metric("📭 Municípios sem envio para aterro (ou dados zerados)", municipios_sem_aterro)
+        st.caption("ℹ️ *Municípios com aterro = aqueles que possuem pelo menos uma rota de coleta cujo destino final é aterro sanitário, controlado ou lixão.*")
+        st.markdown("---")
+
         ocultar_transbordo_panorama = st.checkbox(
             "Ocultar transbordos no panorama",
             value=False,
@@ -1005,6 +1026,7 @@ with tab_tradicional:
     Baseline (aterro): CH₄ apenas, φ=0.85, OX=0.383, GWP_CH4=28 | Compostagem: CH₄=0.002, N₂O=0.0002, GWP_CH4=28, GWP_N2O=265
     DOC/k: ponderados pela caracterização dos resíduos do SNIS (quando disponível) | Cotações em tempo real via Yahoo Finance e APIs de câmbio.
     """)
+
 
 
 #B9
