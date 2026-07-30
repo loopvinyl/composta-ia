@@ -312,6 +312,8 @@ def calcular_evitado_por_municipio(df, col_destino, col_massa):
 
 #B5
 
+#B5
+
 # =========================================================
 # FUNÇÕES DE PROJEÇÃO PER CAPITA E SIMULAÇÃO
 # =========================================================
@@ -400,7 +402,7 @@ def plot_simulacao_compostagem(df_sim):
     return fig
 
 # =========================================================
-# NOVA FUNÇÃO: PROJEÇÃO CONTÍNUA DE 20 ANOS (DEPÓSITOS ANUAIS REPETIDOS)
+# NOVA FUNÇÃO: PROJEÇÃO CONTÍNUA DE 20 ANOS (DEPÓSITOS ANUAIS REPETIDOS) - CORRIGIDA
 # =========================================================
 def projetar_emissao_continua(massa_anual_t, mcf, k, doc, docf, anos=20):
     """
@@ -412,14 +414,24 @@ def projetar_emissao_continua(massa_anual_t, mcf, k, doc, docf, anos=20):
     - Emissao_Anual (tCO2e emitidas naquele ano específico)
     - Emissao_Acumulada (tCO2e totais acumuladas até aquele ano)
     """
+    # GARANTE QUE A MASSA ESTÁ EM TONELADAS (se for muito pequena, assume que está em kt)
+    if massa_anual_t > 0 and massa_anual_t < 1000:
+        # Se for menor que 1000, provavelmente está em kt, converte para t
+        massa_anual_t = massa_anual_t * 1000
+        st.warning(f"⚠️ Massa convertida de kt para t: {massa_anual_t/1000:.0f} kt → {massa_anual_t:,.0f} t")
+    
     if massa_anual_t <= 0 or mcf <= 0:
         return pd.DataFrame(columns=['Ano', 'Emissao_Anual', 'Emissao_Acumulada'])
     
     # Fator de emissão potencial (tCO2e por tonelada de resíduo depositado)
-    # Este é o total que 1 tonelada emitirá ao longo de toda a sua vida no aterro (20 anos)
+    # ch4_pot_kg é kg CH4 por kg de resíduo.
+    # Multiplicando por GWP_CH4 obtemos kg CO2e por kg de resíduo.
+    # Como 1 tonelada = 1000 kg, o fator em tCO2e por tonelada é o MESMO VALOR NUMÉRICO
+    # (porque a tonelada tem 1000 kg, e o fator já é por kg).
+    # Portanto, NÃO se divide por 1000 aqui.
     ch4_pot_kg = (doc * docf * mcf * F_METHANE_FRACTION * (16/12) *
                   (1 - OX_SOIL_COVER) * PHI_APPLICATION_B)
-    fator_tco2_por_t = (ch4_pot_kg * GWP_CH4) / 1000.0  # tCO2e por t de resíduo
+    fator_tco2_por_ton = ch4_pot_kg * GWP_CH4  # <--- CORREÇÃO: removido o /1000
     
     resultados = []
     emissao_acumulada_total = 0.0
@@ -434,7 +446,7 @@ def projetar_emissao_continua(massa_anual_t, mcf, k, doc, docf, anos=20):
             fracao_ano = np.exp(-k * (anos_decomp - 1)) - np.exp(-k * anos_decomp)
             
             # Emissão desta camada específica neste ano
-            emissao_camada = massa_anual_t * fator_tco2_por_t * fracao_ano
+            emissao_camada = massa_anual_t * fator_tco2_por_ton * fracao_ano
             emissao_ano += emissao_camada
         
         emissao_acumulada_total += emissao_ano
@@ -446,6 +458,8 @@ def projetar_emissao_continua(massa_anual_t, mcf, k, doc, docf, anos=20):
     
     return pd.DataFrame(resultados)
 
+
+#B6
 
 #B6
 
@@ -551,7 +565,6 @@ df_clean[COL_MUNICIPIO] = df_clean[COL_MUNICIPIO].astype(str).str.strip()
 municipios = ["BRASIL – Todos os municípios"] + sorted(df_clean[COL_MUNICIPIO].unique())
 municipio = st.selectbox("Selecione o município:", municipios)
 df_mun = df_clean.copy() if municipio == municipios[0] else df_clean[df_clean[COL_MUNICIPIO] == municipio]
-
 
 #B7
 
@@ -1636,6 +1649,8 @@ with tab_ia:
 
 #B10
 
+#B10
+
 # =========================================================
 # ABA DIAGNÓSTICO DE EMISSÕES (com a nova seção de limiares contínuos no final)
 # =========================================================
@@ -1992,6 +2007,9 @@ with tab_diagnostico:
                 docf_medio = df_mun_proj_cont['DOCF_Medio'].iloc[0]
                 k_medio = df_mun_proj_cont['k_Medio'].iloc[0]
                 titulo_proj_cont = municipio_proj_cont
+            
+            # Exibe a massa usada para depuração
+            st.info(f"📌 **Massa anual considerada:** {formatar_br(massa_anual, auto_precision=False, casas_override=0)} t ({formatar_br(massa_anual/1000, auto_precision=False, casas_override=0)} kt) — MCF médio: {mcf_medio:.2f}, k médio: {k_medio:.4f}")
             
             if massa_anual > 0 and mcf_medio > 0:
                 df_proj_cont = projetar_emissao_continua(massa_anual, mcf_medio, k_medio, doc_medio, docf_medio)
