@@ -1036,6 +1036,7 @@ with tab_tradicional:
     DOC/k: ponderados pela caracterização dos resíduos do SNIS (quando disponível) | Cotações em tempo real via Yahoo Finance e APIs de câmbio.
     """)
 
+
 #B9
 
 # =========================================================
@@ -1674,6 +1675,105 @@ with tab_ia:
     - O cenário realista é uma meta factível, baseada no que os municípios com menores índices já conseguem alcançar.  
     - O cenário otimista representa uma meta mais ambiciosa, baseada na média dos municípios que já possuem coleta seletiva.  
     - A receita total considera o preço do carbono e o câmbio atuais.
+    """)
+
+    # =========================================================
+    # NOVA SEÇÃO: CENÁRIOS DE EXPANSÃO CONSIDERANDO DEPÓSITOS CONTÍNUOS (ACUMULAÇÃO DE 20 ANOS)
+    # =========================================================
+    st.markdown("---")
+    st.subheader("📈 Cenários de Expansão com Depósitos Contínuos (Acumulação de 20 Anos)")
+
+    st.markdown("""
+    Os cenários acima consideram as emissões evitadas **anuais** (média de 1 depósito). No entanto, a realidade de um aterro é de **depósitos anuais repetidos**, onde o metano se acumula ao longo do tempo.
+
+    A tabela abaixo recalcula os mesmos cenários considerando o **passivo acumulado no 20º ano** de operação contínua do aterro, usando o modelo de decaimento da UNFCCC A6.4-AMT-003.
+
+    - **Fator de acumulação**: razão entre a emissão no 20º ano (depósitos contínuos) e a emissão média de 1 depósito.
+    - Quanto maior o fator, maior o impacto do passivo acumulado.
+    """)
+
+    # Calcular o fator de acumulação para o Brasil (média ponderada)
+    with st.spinner("Calculando fator de acumulação para os cenários contínuos..."):
+        # Usa os dados de emissão já processados (df_emissoes) para calcular o fator médio
+        # Se df_emissoes não estiver disponível, usa valores padrão
+        if 'df_emissoes' in locals() and not df_emissoes.empty:
+            # Calcula a massa total e parâmetros médios ponderados
+            massa_total = df_emissoes['Massa_Aterro_Anual_t'].sum()
+            if massa_total > 0:
+                mcf_medio = (df_emissoes['Massa_Aterro_Anual_t'] * df_emissoes['MCF_Medio']).sum() / massa_total
+                doc_medio = (df_emissoes['Massa_Aterro_Anual_t'] * df_emissoes['DOC_Medio']).sum() / massa_total
+                docf_medio = (df_emissoes['Massa_Aterro_Anual_t'] * df_emissoes['DOCF_Medio']).sum() / massa_total
+                k_medio = (df_emissoes['Massa_Aterro_Anual_t'] * df_emissoes['k_Medio']).sum() / massa_total
+                
+                # Fator de emissão por tonelada
+                ch4_pot_kg = (doc_medio * docf_medio * mcf_medio * F_METHANE_FRACTION * (16/12) *
+                              (1 - OX_SOIL_COVER) * PHI_APPLICATION_B)
+                fator_tco2_por_ton = ch4_pot_kg * GWP_CH4  # tCO2e por tonelada
+                
+                # Emissão média de 1 depósito (por tonelada) = fator * (1 - exp(-k*20)) / 20
+                emissao_media_por_t = fator_tco2_por_ton * (1 - np.exp(-k_medio * 20)) / 20
+                
+                # Emissão no ano 20 (depósitos contínuos) por tonelada = fator * (1 - exp(-k*20))
+                emissao_continua_por_t = fator_tco2_por_ton * (1 - np.exp(-k_medio * 20))
+                
+                # Fator de acumulação = emissão contínua / emissão média
+                fator_acumulacao = emissao_continua_por_t / emissao_media_por_t if emissao_media_por_t > 0 else 20
+            else:
+                fator_acumulacao = 20  # fallback
+        else:
+            # fallback se df_emissoes não estiver disponível
+            fator_acumulacao = 20
+
+        st.info(f"📌 **Fator de acumulação médio para o Brasil: {fator_acumulacao:.1f}x** — ou seja, a emissão anual no 20º ano de operação contínua é {fator_acumulacao:.1f} vezes maior que a média de um único depósito.")
+
+    # Recalcula os cenários com o fator de acumulação
+    fator = fator_acumulacao
+
+    # Cenário Atual (Pessimista) – contínuo
+    massa_compost_cont = massa_compostada_atual  # a massa desviada é a mesma, mas o impacto é multiplicado
+    emissao_evitada_cont = evitado_atual * fator
+    receita_cont = receita_atual * fator
+
+    # Cenário Realista – contínuo
+    massa_compost_realista_cont = massa_compostada_realista
+    emissao_evitada_realista_cont = evitado_total_realista * fator
+    receita_realista_cont = receita_total_realista * fator
+
+    # Cenário Otimista – contínuo
+    massa_compost_otimista_cont = massa_compostada_otimista
+    emissao_evitada_otimista_cont = evitado_total_otimista * fator
+    receita_otimista_cont = receita_total_otimista * fator
+
+    # Exibe os resultados
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("#### 📉 Cenário Atual (Contínuo)")
+        st.metric("Massa compostada", f"{formatar_br(massa_compost_cont, auto_precision=False, casas_override=0)} t")
+        st.metric("Emissões evitadas (20º ano)", f"{formatar_br(emissao_evitada_cont, auto_precision=False, casas_override=2)} tCO₂e")
+        st.metric("Receita (20º ano)", f"R$ {formatar_br(receita_cont, auto_precision=False, casas_override=2)}")
+        st.caption(f"Fator de acúmulo: {fator:.1f}x")
+
+    with col2:
+        st.markdown("#### 📊 Cenário Realista (Contínuo)")
+        st.metric("Massa compostada", f"{formatar_br(massa_compost_realista_cont, auto_precision=False, casas_override=0)} t")
+        st.metric("Massa adicional", f"{formatar_br(massa_adicional_realista, auto_precision=False, casas_override=0)} t")
+        st.metric("Emissões evitadas (20º ano)", f"{formatar_br(emissao_evitada_realista_cont, auto_precision=False, casas_override=2)} tCO₂e")
+        st.metric("Receita (20º ano)", f"R$ {formatar_br(receita_realista_cont, auto_precision=False, casas_override=2)}")
+        st.caption(f"Fator de acúmulo: {fator:.1f}x")
+
+    with col3:
+        st.markdown("#### 📈 Cenário Otimista (Contínuo)")
+        st.metric("Massa compostada", f"{formatar_br(massa_compost_otimista_cont, auto_precision=False, casas_override=0)} t")
+        st.metric("Massa adicional", f"{formatar_br(massa_adicional_otimista, auto_precision=False, casas_override=0)} t")
+        st.metric("Emissões evitadas (20º ano)", f"{formatar_br(emissao_evitada_otimista_cont, auto_precision=False, casas_override=2)} tCO₂e")
+        st.metric("Receita (20º ano)", f"R$ {formatar_br(receita_otimista_cont, auto_precision=False, casas_override=2)}")
+        st.caption(f"Fator de acúmulo: {fator:.1f}x")
+
+    st.info(f"""
+    💡 **Interpretação dos cenários contínuos:**
+    - Os valores acima representam as **emissões evitadas e receitas no 20º ano** de operação contínua, considerando que a cada ano a mesma quantidade de resíduos é desviada do aterro para compostagem.
+    - O fator de acumulação de **{fator:.1f}x** significa que, devido ao passivo acumulado, o impacto da compostagem no 20º ano é **{fator:.1f} vezes maior** do que a média anual calculada para um único depósito.
+    - Isso demonstra que **quanto mais cedo as políticas de desvio forem implementadas, maior será o benefício acumulado** ao longo do tempo.
     """)
 
 #B10
