@@ -590,8 +590,6 @@ tab_tradicional, tab_ia, tab_diagnostico = st.tabs([
     "🔥 Diagnóstico de Emissões (Baseline)"
 ])
 
-#B8
-
 
 #B8
 
@@ -607,11 +605,10 @@ with tab_tradicional:
         st.markdown(f"**Dados do SNIS – {ano_selecionado}**")
 
         # =========================================================
-        # CARDS DE ESTATÍSTICAS GERAIS (ADICIONADOS AQUI)
+        # CARDS DE ESTATÍSTICAS GERAIS
         # =========================================================
         total_municipios_snis = df_clean['MUNICÍPIO'].nunique()
         
-        # Calcula quantos municípios têm pelo menos uma rota com destino que é aterro (MCF > 0)
         df_temp = df_clean.copy()
         df_temp['MCF'] = df_temp[COL_DESTINO].apply(
             lambda x: determinar_mcf_por_destino(x, 'organico') if pd.notna(x) else 0.0
@@ -663,51 +660,12 @@ with tab_tradicional:
                 df_ate_50 = df_ordenado[df_ordenado['pct_acumulado'] <= 50]
                 pct_municipios_50 = (len(df_ate_50) / len(df_ordenado)) * 100
                 
-                # =========================================================
-                # MÉTRICAS COM FONTE REDUZIDA (HTML)
-                # =========================================================
+                # MÉTRICAS COM st.metric() E LABELS ENCURTADOS
                 col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.markdown(
-                        f"""
-                        <div style="text-align: center;">
-                            <span style="font-size: 11px; color: #666;">📊 Média per capita</span><br>
-                            <span style="font-size: 16px; font-weight: bold;">{formatar_br(media, auto_precision=False, casas_override=0)} kg/hab/ano</span>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                with col2:
-                    st.markdown(
-                        f"""
-                        <div style="text-align: center;">
-                            <span style="font-size: 11px; color: #666;">📈 Mediana per capita</span><br>
-                            <span style="font-size: 16px; font-weight: bold;">{formatar_br(mediana, auto_precision=False, casas_override=0)} kg/hab/ano</span>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                with col3:
-                    st.markdown(
-                        f"""
-                        <div style="text-align: center;">
-                            <span style="font-size: 11px; color: #666;">📐 Quartis (25% / 75%)</span><br>
-                            <span style="font-size: 16px; font-weight: bold;">{formatar_br(q1, auto_precision=False, casas_override=0)} / {formatar_br(q3, auto_precision=False, casas_override=0)} kg/hab/ano</span>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                with col4:
-                    st.markdown(
-                        f"""
-                        <div style="text-align: center;">
-                            <span style="font-size: 11px; color: #666;">🎯 Concentração (Pareto)</span><br>
-                            <span style="font-size: 16px; font-weight: bold;">{formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}% dos municípios</span><br>
-                            <span style="font-size: 11px; color: #666;">concentram 80% do RSU</span>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
+                col1.metric("Média per capita", f"{formatar_br(media, auto_precision=False, casas_override=0)} kg/hab/ano")
+                col2.metric("Mediana per capita", f"{formatar_br(mediana, auto_precision=False, casas_override=0)} kg/hab/ano")
+                col3.metric("Quartis (25/75%)", f"{formatar_br(q1, auto_precision=False, casas_override=0)} / {formatar_br(q3, auto_precision=False, casas_override=0)} kg/hab/ano")
+                col4.metric("Concentração (Pareto)", f"{formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}% dos municípios concentram 80% do RSU")
                 
                 # Gráfico de concentração (Pareto)
                 fig_conc, ax_conc = plt.subplots(figsize=(12, 7))
@@ -732,18 +690,10 @@ with tab_tradicional:
                 
                 legenda_extra = " (transbordos ocultados)" if ocultar_transbordo_panorama else ""
                 
-                # =========================================================
-                # CAPTION COM FONTE REDUZIDA (HTML)
-                # =========================================================
-                st.markdown(
-                    f"""
-                    <div style="font-size: 12px; color: #555; line-height: 1.5;">
-                    📌 <strong>Interpretação:</strong> A curva demonstra que os <strong>{formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}% maiores municípios</strong> (em massa) concentram <strong>80% de todo o RSU do Brasil{legenda_extra}</strong>.<br>
-                    Média per capita: {formatar_br(media, auto_precision=False, casas_override=0)} kg/hab/ano | Mediana: {formatar_br(mediana, auto_precision=False, casas_override=0)} kg/hab/ano | Amplitude: {formatar_br(minimo, auto_precision=False, casas_override=0)} – {formatar_br(maximo, auto_precision=False, casas_override=0)} kg/hab/ano
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+                st.caption(f"""
+                📌 **Interpretação:** A curva demonstra que os **{formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}% maiores municípios** (em massa) concentram **80% de todo o RSU do Brasil{legenda_extra}**.
+                Média per capita: {formatar_br(media, auto_precision=False, casas_override=0)} kg/hab/ano | Mediana: {formatar_br(mediana, auto_precision=False, casas_override=0)} kg/hab/ano | Amplitude: {formatar_br(minimo, auto_precision=False, casas_override=0)} – {formatar_br(maximo, auto_precision=False, casas_override=0)} kg/hab/ano
+                """)
             else:
                 st.warning("Dados insuficientes para calcular estatísticas nacionais.")
 
@@ -1081,7 +1031,6 @@ with tab_tradicional:
     Baseline (aterro): CH₄ apenas, φ=0.85, OX=0.383, GWP_CH4=28 | Compostagem: CH₄=0.002, N₂O=0.0002, GWP_CH4=28, GWP_N2O=265
     DOC/k: ponderados pela caracterização dos resíduos do SNIS (quando disponível) | Cotações em tempo real via Yahoo Finance e APIs de câmbio.
     """)
-
 
 #B9
 
