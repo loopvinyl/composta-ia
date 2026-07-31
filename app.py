@@ -660,12 +660,16 @@ with tab_tradicional:
                 df_ate_50 = df_ordenado[df_ordenado['pct_acumulado'] <= 50]
                 pct_municipios_50 = (len(df_ate_50) / len(df_ordenado)) * 100
                 
-                # MÉTRICAS COM st.metric() E LABELS ENCURTADOS
+                # MÉTRICAS COM st.metric() - VALOR CURTO, INFO NO HELP
                 col1, col2, col3, col4 = st.columns(4)
                 col1.metric("Média per capita", f"{formatar_br(media, auto_precision=False, casas_override=0)} kg/hab/ano")
                 col2.metric("Mediana per capita", f"{formatar_br(mediana, auto_precision=False, casas_override=0)} kg/hab/ano")
                 col3.metric("Quartis (25/75%)", f"{formatar_br(q1, auto_precision=False, casas_override=0)} / {formatar_br(q3, auto_precision=False, casas_override=0)} kg/hab/ano")
-                col4.metric("Concentração (Pareto)", f"{formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}% dos municípios concentram 80% do RSU")
+                col4.metric(
+                    "Concentração (Pareto)", 
+                    f"{formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}%",
+                    help=f"{formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}% dos municípios concentram 80% do RSU"
+                )
                 
                 # Gráfico de concentração (Pareto)
                 fig_conc, ax_conc = plt.subplots(figsize=(12, 7))
