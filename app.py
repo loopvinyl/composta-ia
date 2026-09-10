@@ -803,7 +803,7 @@ with tab_tradicional:
                             "Equivale a ≈ 500 g de restos de comida, vegetais e frutas por habitante por dia."
                         )
                     )
-                    st.caption("⚠️ Estimativas baseadas em referência bibliográfica — **não** substituem o estudo de caracterização de cada município.")
+                    st.caption("⚠️ Estimativas baseadas em referência bibliográfica, **não** substituem o estudo de caracterização de cada município.")
 
                 # Gráfico de concentração (Pareto)
                 fig_conc, ax_conc = plt.subplots(figsize=(12, 7))
