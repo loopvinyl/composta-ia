@@ -487,6 +487,15 @@ def load_data(ano):
         st.warning("⚠️ A aba 'Manejo_Resíduos_Sólidos_Urbanos' não possui 10 colunas. Coluna J (população) não encontrada.")
         df_caract['POPULACAO_TOTAL'] = 0
 
+    # =========================================================
+    # POPULAÇÃO TOTAL DO BRASIL = SOMA BRUTA DA COLUNA J
+    # (SEM FILTROS — todos os municípios cadastrados na aba)
+    # =========================================================
+    populacao_brasil_snis = df_caract['POPULACAO_TOTAL'].sum()
+
+    # Total de municípios cadastrados na aba (para o card comparativo)
+    total_municipios_caract = df_caract['Cod_IBGE'].nunique() if 'Cod_IBGE' in df_caract.columns else len(df_caract)
+
     cols_caract = ['Cod_IBGE', 'POPULACAO_TOTAL',
                    'GTR1501', 'GTR1502', 'GTR1503', 'GTR1504',
                    'GTR1505', 'GTR1506', 'GTR1507']
@@ -494,9 +503,9 @@ def load_data(ano):
     df_caract_filtrado = df_caract[cols_existentes]
     df = pd.merge(df_coleta, df_caract_filtrado, on='Cod_IBGE', how='left')
 
-    return df
+    return df, populacao_brasil_snis, total_municipios_caract
 
-df = load_data(ano_selecionado)
+df, POPULACAO_BRASIL_SNIS, TOTAL_MUNICIPIOS_CADASTRO = load_data(ano_selecionado)
 
 # =========================================================
 # MAPEAMENTO INTELIGENTE DE COLUNAS (por nome, não por índice)
@@ -615,7 +624,7 @@ with tab_tradicional:
         # CARDS DE ESTATÍSTICAS GERAIS
         # =========================================================
         total_municipios_snis = df_clean['MUNICÍPIO'].nunique()
-        
+
         df_temp = df_clean.copy()
         df_temp['MCF'] = df_temp[COL_DESTINO].apply(
             lambda x: determinar_mcf_por_destino(x, 'organico') if pd.notna(x) else 0.0
@@ -623,11 +632,29 @@ with tab_tradicional:
         municipios_com_aterro = df_temp[df_temp['MCF'] > 0]['MUNICÍPIO'].nunique()
         municipios_sem_aterro = total_municipios_snis - municipios_com_aterro
 
-        col1, col2, col3 = st.columns(3)
-        col1.metric("🏙️ Total de municípios no SNIS", total_municipios_snis)
-        col2.metric("🗑️ Municípios com resíduos enviados para aterro", municipios_com_aterro)
-        col3.metric("📭 Municípios sem envio para aterro (ou dados zerados)", municipios_sem_aterro)
-        st.caption("ℹ️ *Municípios com aterro = aqueles que possuem pelo menos uma rota de coleta cujo destino final é aterro sanitário, controlado ou lixão.*")
+        # =========================================================
+        # PAINEL DE MUNICÍPIOS — 4 CARDS
+        # Explicita a diferença entre:
+        #  (a) municípios que REPORTARAM coleta (aba Manejo_Coleta_e_Destinação)
+        #  (b) TOTAL de municípios cadastrados no SNIS (aba Manejo_Resíduos_Sólidos_Urbanos)
+        # =========================================================
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("🏙️ Municípios que reportaram coleta", total_municipios_snis,
+                    help="Municípios presentes na aba 'Manejo_Coleta_e_Destinação' (declararam pelo menos uma rota de coleta).")
+        col2.metric("🇧🇷 Total de municípios no SNIS", TOTAL_MUNICIPIOS_CADASTRO,
+                    help="Municípios cadastrados na aba 'Manejo_Resíduos_Sólidos_Urbanos' (todos os 5.570 do IBGE).")
+        col3.metric("🗑️ Municípios com envio para aterro", municipios_com_aterro,
+                    help="Municípios que possuem pelo menos uma rota de coleta cujo destino final é aterro sanitário, controlado ou lixão.")
+        col4.metric("📭 Sem envio para aterro (ou dados zerados)", municipios_sem_aterro)
+
+        st.caption(f"""
+        ℹ️ **Diferença importante:**
+        - O SNIS {ano_selecionado} possui **{TOTAL_MUNICIPIOS_CADASTRO} municípios cadastrados** (aba de caracterização — todos os {TOTAL_MUNICIPIOS_CADASTRO} do Brasil).
+        - **{total_municipios_snis}** reportaram efetivamente **rotas de coleta** (aba de coleta).
+        - A diferença de **{TOTAL_MUNICIPIOS_CADASTRO - total_municipios_snis} municípios** são cidades que **não declararam nenhuma rota de coleta** — possivelmente dados ausentes ou não se aplicam.
+
+        *Municípios com aterro = aqueles que possuem pelo menos uma rota de coleta cujo destino final é aterro sanitário, controlado ou lixão.*
+        """)
         st.markdown("---")
 
         ocultar_transbordo_panorama = st.checkbox(
@@ -662,10 +689,12 @@ with tab_tradicional:
                 # =========================================================
                 # PER CAPITA NACIONAL AGREGADO (PONDERADO)
                 # Massa total ÷ População total × 1000
-                # A massa é influenciada pelo checkbox "Ocultar transbordos"
+                # - Massa: dos municípios que reportaram (respeitando "Ocultar transbordos")
+                # - População: SOMA BRUTA da coluna J (todos os municípios cadastrados
+                #   na aba 'Manejo_Resíduos_Sólidos_Urbanos' — sem filtros)
                 # =========================================================
                 massa_total_brasil_pc = df_massa_mun['MASSA_COLETADA'].sum()
-                pop_total_brasil_pc = df_massa_mun['POPULACAO_TOTAL'].sum()
+                pop_total_brasil_pc = POPULACAO_BRASIL_SNIS  # 5.570 municípios, sem filtro
                 per_capita_nacional = (massa_total_brasil_pc / pop_total_brasil_pc) * 1000 if pop_total_brasil_pc > 0 else 0
 
                 df_ordenado = df_massa_mun.sort_values('MASSA_COLETADA', ascending=False).copy()
@@ -685,17 +714,17 @@ with tab_tradicional:
                 col1.metric(
                     "⚖️ Massa total coletada",
                     f"{formatar_br(massa_total_brasil_pc, auto_precision=False, casas_override=0)} t",
-                    help="Soma da massa de todos os municípios (influenciada pela opção 'Ocultar transbordos')."
+                    help="Soma da massa dos municípios que reportaram coleta (influenciada pela opção 'Ocultar transbordos')."
                 )
                 col2.metric(
-                    "👥 População total",
+                    "👥 População total (IBGE)",
                     f"{formatar_br(pop_total_brasil_pc, auto_precision=False, casas_override=0)} hab",
-                    help="Soma da população de todos os municípios (coluna J do SNIS)."
+                    help=f"Soma da coluna J de TODOS os {TOTAL_MUNICIPIOS_CADASTRO} municípios cadastrados na aba 'Manejo_Resíduos_Sólidos_Urbanos' (sem filtros)."
                 )
                 col3.metric(
                     "📊 Per capita nacional",
                     f"{formatar_br(per_capita_nacional, auto_precision=False, casas_override=0)} kg/hab/ano",
-                    help="Massa total ÷ População total × 1000. Reflete a realidade nacional (municípios grandes pesam mais)."
+                    help="Massa total ÷ População total (IBGE) × 1000. Reflete a realidade nacional (municípios grandes pesam mais)."
                 )
 
                 # Gráfico de concentração (Pareto)
@@ -724,7 +753,7 @@ with tab_tradicional:
                 st.caption(f"""
                 📌 **Interpretação:** A curva demonstra que os **{formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}% maiores municípios** (em massa) concentram **80% de todo o RSU do Brasil{legenda_extra}**.
 
-                **Per capita nacional:** {formatar_br(per_capita_nacional, auto_precision=False, casas_override=0)} kg/hab/ano — Massa total ({formatar_br(massa_total_brasil_pc, auto_precision=False, casas_override=0)} t) ÷ População total ({formatar_br(pop_total_brasil_pc, auto_precision=False, casas_override=0)} hab) × 1000.
+                **Per capita nacional:** {formatar_br(per_capita_nacional, auto_precision=False, casas_override=0)} kg/hab/ano — Massa total ({formatar_br(massa_total_brasil_pc, auto_precision=False, casas_override=0)} t) ÷ População total IBGE ({formatar_br(pop_total_brasil_pc, auto_precision=False, casas_override=0)} hab) × 1000.
                 """)
             else:
                 st.warning("Dados insuficientes para calcular estatísticas nacionais.")
