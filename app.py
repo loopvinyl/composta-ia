@@ -642,7 +642,7 @@ with tab_tradicional:
         col1.metric("🏙️ Municípios que reportaram coleta", total_municipios_snis,
                     help="Municípios presentes na aba 'Manejo_Coleta_e_Destinação' (declararam pelo menos uma rota de coleta).")
         col2.metric("🇧🇷 Total de municípios no SNIS", TOTAL_MUNICIPIOS_CADASTRO,
-                    help="Municípios cadastrados na aba 'Manejo_Resíduos_Sólidos_Urbanos' (todos os 5.570 do IBGE).")
+                    help="Municípios cadastrados na aba 'Manejo_Resíduos_Sólidos_Urbanos' (todos os 5.570 municípios do Brasil).")
         col3.metric("🗑️ Municípios com envio para aterro", municipios_com_aterro,
                     help="Municípios que possuem pelo menos uma rota de coleta cujo destino final é aterro sanitário, controlado ou lixão.")
         col4.metric("📭 Sem envio para aterro (ou dados zerados)", municipios_sem_aterro)
@@ -717,14 +717,14 @@ with tab_tradicional:
                     help="Soma da massa dos municípios que reportaram coleta (influenciada pela opção 'Ocultar transbordos')."
                 )
                 col2.metric(
-                    "👥 População total (IBGE)",
+                    "👥 População total (SNIS)",
                     f"{formatar_br(pop_total_brasil_pc, auto_precision=False, casas_override=0)} hab",
                     help=f"Soma da coluna J de TODOS os {TOTAL_MUNICIPIOS_CADASTRO} municípios cadastrados na aba 'Manejo_Resíduos_Sólidos_Urbanos' (sem filtros)."
                 )
                 col3.metric(
                     "📊 Per capita nacional",
                     f"{formatar_br(per_capita_nacional, auto_precision=False, casas_override=0)} kg/hab/ano",
-                    help="Massa total ÷ População total (IBGE) × 1000. Reflete a realidade nacional (municípios grandes pesam mais)."
+                    help="Massa total ÷ População total (SNIS) × 1000. Reflete a realidade nacional (municípios grandes pesam mais)."
                 )
 
                 # Gráfico de concentração (Pareto)
@@ -753,7 +753,7 @@ with tab_tradicional:
                 st.caption(f"""
                 📌 **Interpretação:** A curva demonstra que os **{formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}% maiores municípios** (em massa) concentram **80% de todo o RSU do Brasil{legenda_extra}**.
 
-                **Per capita nacional:** {formatar_br(per_capita_nacional, auto_precision=False, casas_override=0)} kg/hab/ano — Massa total ({formatar_br(massa_total_brasil_pc, auto_precision=False, casas_override=0)} t) ÷ População total IBGE ({formatar_br(pop_total_brasil_pc, auto_precision=False, casas_override=0)} hab) × 1000.
+                **Per capita nacional:** {formatar_br(per_capita_nacional, auto_precision=False, casas_override=0)} kg/hab/ano — Massa total ({formatar_br(massa_total_brasil_pc, auto_precision=False, casas_override=0)} t) ÷ População total SNIS ({formatar_br(pop_total_brasil_pc, auto_precision=False, casas_override=0)} hab) × 1000.
                 """)
             else:
                 st.warning("Dados insuficientes para calcular estatísticas nacionais.")
