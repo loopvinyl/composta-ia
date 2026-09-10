@@ -764,7 +764,7 @@ with tab_tradicional:
                     f"{formatar_br(per_capita_dia, auto_precision=False, casas_override=2)} kg/hab/dia",
                     help="Per capita anual ÷ 365. Indicador clássico de geração diária de RSU (≈ 1 kg/hab/dia)."
                 )
-                st.caption("📌 Valores obtidos diretamente da planilha do SNIS — sem estimativas.")
+                st.caption("📌 Valores obtidos de: https://www.gov.br/cidades/pt-br/acesso-a-informacao/acoes-e-programas/saneamento/sinisa")
 
                 st.markdown("")
 
