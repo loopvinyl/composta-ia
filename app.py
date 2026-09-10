@@ -660,9 +660,9 @@ with tab_tradicional:
                 maximo = df_massa_mun['per_capita_kg'].max()
 
                 # =========================================================
-                # ✅ NOVO: PER CAPITA NACIONAL AGREGADO
-                # (soma da massa total ÷ soma da população total × 1000)
-                # Este é o valor oficial do país: municípios grandes pesam mais.
+                # PER CAPITA NACIONAL AGREGADO (PONDERADO)
+                # Massa total ÷ População total × 1000
+                # A massa é influenciada pelo checkbox "Ocultar transbordos"
                 # =========================================================
                 massa_total_brasil_pc = df_massa_mun['MASSA_COLETADA'].sum()
                 pop_total_brasil_pc = df_massa_mun['POPULACAO_TOTAL'].sum()
@@ -678,31 +678,24 @@ with tab_tradicional:
                 pct_municipios_50 = (len(df_ate_50) / len(df_ordenado)) * 100
 
                 # =========================================================
-                # MÉTRICAS COM st.metric() - VALOR CURTO, INFO NO HELP
+                # PAINEL PRINCIPAL: MASSA TOTAL, POPULAÇÃO TOTAL E PER CAPITA NACIONAL
+                # A massa é influenciada pelo checkbox "Ocultar transbordos"
                 # =========================================================
-                col1, col2, col3, col4, col5 = st.columns(5)
+                col1, col2, col3 = st.columns(3)
                 col1.metric(
-                    "Per capita nacional",
-                    f"{formatar_br(per_capita_nacional, auto_precision=False, casas_override=0)} kg/hab/ano",
-                    help="Soma da massa total ÷ soma da população total × 1000. Reflete a realidade nacional (municípios grandes pesam mais)."
+                    "⚖️ Massa total coletada",
+                    f"{formatar_br(massa_total_brasil_pc, auto_precision=False, casas_override=0)} t",
+                    help="Soma da massa de todos os municípios (influenciada pela opção 'Ocultar transbordos')."
                 )
                 col2.metric(
-                    "Média municipal",
-                    f"{formatar_br(media, auto_precision=False, casas_override=0)} kg/hab/ano",
-                    help="Média simples dos per capita municipais (cada município pesa igual, independente do tamanho)."
+                    "👥 População total",
+                    f"{formatar_br(pop_total_brasil_pc, auto_precision=False, casas_override=0)} hab",
+                    help="Soma da população de todos os municípios (coluna J do SNIS)."
                 )
                 col3.metric(
-                    "Mediana municipal",
-                    f"{formatar_br(mediana, auto_precision=False, casas_override=0)} kg/hab/ano"
-                )
-                col4.metric(
-                    "Quartis (25/75%)",
-                    f"{formatar_br(q1, auto_precision=False, casas_override=0)} / {formatar_br(q3, auto_precision=False, casas_override=0)} kg/hab/ano"
-                )
-                col5.metric(
-                    "Concentração (Pareto)",
-                    f"{formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}%",
-                    help=f"{formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}% dos municípios concentram 80% do RSU"
+                    "📊 Per capita nacional",
+                    f"{formatar_br(per_capita_nacional, auto_precision=False, casas_override=0)} kg/hab/ano",
+                    help="Massa total ÷ População total × 1000. Reflete a realidade nacional (municípios grandes pesam mais)."
                 )
 
                 # Gráfico de concentração (Pareto)
@@ -730,9 +723,8 @@ with tab_tradicional:
 
                 st.caption(f"""
                 📌 **Interpretação:** A curva demonstra que os **{formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}% maiores municípios** (em massa) concentram **80% de todo o RSU do Brasil{legenda_extra}**.
-                
-                **Per capita nacional (agregado):** {formatar_br(per_capita_nacional, auto_precision=False, casas_override=0)} kg/hab/ano — soma da massa total ({formatar_br(massa_total_brasil_pc, auto_precision=False, casas_override=0)} t) ÷ soma da população total ({formatar_br(pop_total_brasil_pc, auto_precision=False, casas_override=0)} hab) × 1000.  
-                **Média municipal:** {formatar_br(media, auto_precision=False, casas_override=0)} kg/hab/ano | **Mediana:** {formatar_br(mediana, auto_precision=False, casas_override=0)} kg/hab/ano | **Amplitude:** {formatar_br(minimo, auto_precision=False, casas_override=0)} – {formatar_br(maximo, auto_precision=False, casas_override=0)} kg/hab/ano
+
+                **Per capita nacional:** {formatar_br(per_capita_nacional, auto_precision=False, casas_override=0)} kg/hab/ano — Massa total ({formatar_br(massa_total_brasil_pc, auto_precision=False, casas_override=0)} t) ÷ População total ({formatar_br(pop_total_brasil_pc, auto_precision=False, casas_override=0)} hab) × 1000.
                 """)
             else:
                 st.warning("Dados insuficientes para calcular estatísticas nacionais.")
@@ -1226,7 +1218,7 @@ with tab_ia:
     )
     if municipio_proj:
         # =========================================================
-        # CORREÇÃO: A POPULAÇÃO É OBTIDA DIRETAMENTE DA COLUNA J DO SNIS
+        # A POPULAÇÃO É OBTIDA DIRETAMENTE DA COLUNA J DO SNIS
         # - Brasil: soma das populações de todos os municípios únicos
         # - Município: valor real do SNIS
         # (o st.number_input continua disponível apenas para ajuste manual opcional)
