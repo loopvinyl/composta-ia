@@ -471,29 +471,22 @@ def load_data(ano):
     url = URLS_POR_ANO[ano]
     df_coleta = pd.read_excel(url, sheet_name="Manejo_Coleta_e_Destinação", header=12)
     df_caract = pd.read_excel(url, sheet_name="Manejo_Resíduos_Sólidos_Urbanos", header=12)
-
-    # =========================================================
-    # POPULAÇÃO DO MUNICÍPIO = COLUNA J (10ª coluna, índice 9)
-    # da aba "Manejo_Resíduos_Sólidos_Urbanos", a partir da linha 14
-    # (após header=12, esses valores já são dados do DataFrame)
-    # =========================================================
-    if df_caract.shape[1] >= 10:
-        nome_col_j = df_caract.columns[9]
-        df_caract = df_caract.rename(columns={nome_col_j: 'POPULACAO_TOTAL'})
-        df_caract['POPULACAO_TOTAL'] = pd.to_numeric(
-            df_caract['POPULACAO_TOTAL'], errors='coerce'
-        ).fillna(0)
-    else:
-        st.warning("⚠️ A aba 'Manejo_Resíduos_Sólidos_Urbanos' não possui 10 colunas. Coluna J (população) não encontrada.")
-        df_caract['POPULACAO_TOTAL'] = 0
-
-    cols_caract = ['Cod_IBGE', 'POPULACAO_TOTAL',
-                   'GTR1501', 'GTR1502', 'GTR1503', 'GTR1504',
-                   'GTR1505', 'GTR1506', 'GTR1507']
+    cols_caract = ['Cod_IBGE', 'GTR1501', 'GTR1502', 'GTR1503', 'GTR1504', 'GTR1505', 'GTR1506', 'GTR1507']
     cols_existentes = [col for col in cols_caract if col in df_caract.columns]
     df_caract_filtrado = df_caract[cols_existentes]
     df = pd.merge(df_coleta, df_caract_filtrado, on='Cod_IBGE', how='left')
-
+    
+    # Tenta identificar a coluna de população (pode ser DFE0001 ou POPULACAO_TOTAL)
+    if 'DFE0001' in df.columns:
+        df.rename(columns={'DFE0001': 'POPULACAO_TOTAL'}, inplace=True)
+    elif 'POPULACAO_TOTAL' in df.columns:
+        pass  # já está com o nome certo
+    else:
+        # fallback: procura por 'popula' no nome
+        for col in df.columns:
+            if 'popula' in col.lower():
+                df.rename(columns={col: 'POPULACAO_TOTAL'}, inplace=True)
+                break
     return df
 
 df = load_data(ano_selecionado)
@@ -1196,56 +1189,16 @@ with tab_ia:
         key="proj_municipio"
     )
     if municipio_proj:
-        # =========================================================
-        # CORREÇÃO: A POPULAÇÃO É OBTIDA DIRETAMENTE DA COLUNA J DO SNIS
-        # - Brasil: soma das populações de todos os municípios únicos
-        # - Município: valor real do SNIS
-        # (o st.number_input continua disponível apenas para ajuste manual opcional)
-        # =========================================================
         if municipio_proj == "BRASIL – Todos os municípios":
             df_mun_proj = df_clean.copy()
             massa_atual = df_mun_proj['MASSA_COLETADA'].sum()
-
-            # SOMA DAS POPULAÇÕES DE TODOS OS MUNICÍPIOS ÚNICOS (coluna J do SNIS)
-            pop_calculada = (
-                df_mun_proj
-                .drop_duplicates(subset=[COL_MUNICIPIO])
-                .loc[lambda d: d['POPULACAO_TOTAL'] > 0, 'POPULACAO_TOTAL']
-                .sum()
-            )
-            if pop_calculada <= 0:
-                pop_calculada = 210000000  # fallback apenas se a coluna J vier zerada
-
-            st.info(f"📌 População total do Brasil (soma da coluna J do SNIS): **{formatar_br(pop_calculada, auto_precision=False, casas_override=0)} habitantes**")
-            pop_atual = st.number_input(
-                "População total do Brasil (habitantes) – ajuste opcional:",
-                min_value=1000,
-                value=int(pop_calculada),
-                step=1000000,
-                key="pop_brasil_proj"
-            )
+            pop_atual = st.number_input("População total do Brasil (habitantes) – IBGE 2024:", min_value=1000, value=210000000, step=1000000)
             titulo_proj = "Brasil"
         else:
             df_mun_proj = df_clean[df_clean[COL_MUNICIPIO] == municipio_proj]
             massa_atual = df_mun_proj['MASSA_COLETADA'].sum()
-
-            # POPULAÇÃO REAL DO MUNICÍPIO (coluna J do SNIS)
-            pop_serie = (
-                df_mun_proj
-                .drop_duplicates(subset=[COL_MUNICIPIO])['POPULACAO_TOTAL']
-            )
-            pop_calculada = float(pop_serie.iloc[0]) if (not pop_serie.empty and pop_serie.iloc[0] > 0) else 50000
-
-            st.info(f"📌 População de {municipio_proj} (coluna J do SNIS): **{formatar_br(pop_calculada, auto_precision=False, casas_override=0)} habitantes**")
-            pop_atual = st.number_input(
-                f"População atual do município (habitantes) – {municipio_proj} – ajuste opcional:",
-                min_value=100,
-                value=int(pop_calculada),
-                step=1000,
-                key=f"pop_mun_proj_{municipio_proj}"
-            )
+            pop_atual = st.number_input(f"População atual do município (habitantes) – {municipio_proj}:", min_value=100, value=50000, step=1000)
             titulo_proj = municipio_proj
-
         if massa_atual <= 0:
             st.warning("Não há dados de massa coletada para a seleção.")
         else:
@@ -2373,3 +2326,8 @@ st.caption("""
 **Composta.IA** | Ferramenta de apoio à gestão de resíduos sólidos e créditos de carbono  
 Dados: SNIS (2023/2024) | Metodologia: UNFCCC A6.4-AMT-003 (2025) + TOOL13 (AMS-III.F) | IPCC AR5 (GWP-100)
 """)
+
+
+
+
+
