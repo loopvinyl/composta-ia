@@ -26,7 +26,7 @@ st.set_page_config(
 
 st.title("🌱 Composta.IA - Potencial de Compostagem e Créditos de Carbono (UNFCCC)")
 st.markdown("""
-Este aplicativo interpreta os **tipos de coleta executada** informados pelos municípios no SNIS
+Este aplicativo interpreta os **tipos de coleta executada** informados pelos municípios no SINISA
 e avalia o **potencial técnico para compostagem** de resíduos sólidos urbanos,
 utilizando **Inteligência Artificial** para padronizar os dados e a **metodologia UNFCCC A6.4-AMT-003** para o cálculo de emissões.
 
@@ -171,7 +171,7 @@ DOC_PADRAO = 0.15
 K_PADRAO = 0.07
 
 # =========================================================
-# FUNÇÃO PARA CALCULAR DOC, DOC_f e k PONDERADOS (VIA SNIS)
+# FUNÇÃO PARA CALCULAR DOC, DOC_f e k PONDERADOS (VIA SINISA)
 # =========================================================
 def calcular_doc_k_ponderado(df_municipio):
     """
@@ -239,7 +239,7 @@ def calcular_fracao_organica_nacional(df):
     insumos para a agricultura."
 
     Como muitos municípios não realizaram estudo de caracterização dos RSU
-    nos últimos 5 anos (não preenchendo GTR1501/GTR1505 no SNIS), adota-se
+    nos últimos 5 anos (não preenchendo GTR1501/GTR1505 no SINISA), adota-se
     o valor conservador de 50% (piso de "mais da metade") para a fração
     orgânica dos RSU coletados no Brasil.
 
@@ -550,7 +550,7 @@ COL_DESTINO = encontrar_coluna(df, ['destino', 'unidade', 'local de destinação
 
 # Se algum não for encontrado, exibe mensagem de erro e para
 if None in [COL_MUNICIPIO, COL_UF, COL_CODIGO_ROTA, COL_TIPO_COLETA, COL_MASSA, COL_DESTINO]:
-    st.error("❌ Não foi possível identificar todas as colunas necessárias no arquivo. Verifique a estrutura do SNIS.")
+    st.error("❌ Não foi possível identificar todas as colunas necessárias no arquivo. Verifique a estrutura do SINISA.")
     st.stop()
 
 # Renomeia para padronização
@@ -620,7 +620,7 @@ with st.spinner("🤖 Inicializando o modelo de Inteligência Artificial..."):
 # CRIAÇÃO DAS ABAS
 # =========================================================
 tab_tradicional, tab_ia, tab_diagnostico = st.tabs([
-    "📊 Análise Tradicional (SNIS)",
+    "📊 Análise Tradicional (SINISA)",
     "🤖 Insights com Inteligência Artificial",
     "🔥 Diagnóstico de Emissões (Baseline)"
 ])
@@ -637,7 +637,7 @@ with tab_tradicional:
     if municipio == municipios[0]:
         st.markdown("---")
         st.markdown("### 📊 Panorama Nacional de Geração de Resíduos")
-        st.markdown(f"**Dados do SNIS – {ano_selecionado}**")
+        st.markdown(f"**Dados do SINISA – {ano_selecionado}**")
 
         # =========================================================
         # CARDS DE ESTATÍSTICAS GERAIS
@@ -655,12 +655,12 @@ with tab_tradicional:
         # PAINEL DE MUNICÍPIOS — 4 CARDS
         # Explicita a diferença entre:
         #  (a) municípios que REPORTARAM coleta (aba Manejo_Coleta_e_Destinação)
-        #  (b) TOTAL de municípios cadastrados no SNIS (aba Manejo_Resíduos_Sólidos_Urbanos)
+        #  (b) TOTAL de municípios cadastrados no SINISA (aba Manejo_Resíduos_Sólidos_Urbanos)
         # =========================================================
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("🏙️ Municípios que reportaram coleta", total_municipios_snis,
                     help="Municípios presentes na aba 'Manejo_Coleta_e_Destinação' (declararam pelo menos uma rota de coleta).")
-        col2.metric("🇧🇷 Total de municípios no SNIS", TOTAL_MUNICIPIOS_CADASTRO,
+        col2.metric("🇧🇷 Total de municípios no SINISA", TOTAL_MUNICIPIOS_CADASTRO,
                     help="Municípios cadastrados na aba 'Manejo_Resíduos_Sólidos_Urbanos' (todos os 5.570 municípios do Brasil).")
         col3.metric("🗑️ Municípios com envio para aterro", municipios_com_aterro,
                     help="Municípios que possuem pelo menos uma rota de coleta cujo destino final é aterro sanitário, controlado ou lixão.")
@@ -668,7 +668,7 @@ with tab_tradicional:
 
         st.caption(f"""
         ℹ️ **Diferença importante:**
-        - O SNIS {ano_selecionado} possui **{TOTAL_MUNICIPIOS_CADASTRO} municípios cadastrados** (aba de caracterização — todos os {TOTAL_MUNICIPIOS_CADASTRO} do Brasil).
+        - O SINISA {ano_selecionado} possui **{TOTAL_MUNICIPIOS_CADASTRO} municípios cadastrados** (aba de caracterização — todos os {TOTAL_MUNICIPIOS_CADASTRO} do Brasil).
         - **{total_municipios_snis}** reportaram efetivamente **rotas de coleta** (aba de coleta).
         - A diferença de **{TOTAL_MUNICIPIOS_CADASTRO - total_municipios_snis} municípios** são cidades que **não declararam nenhuma rota de coleta** — possivelmente dados ausentes ou não se aplicam.
 
@@ -717,7 +717,7 @@ with tab_tradicional:
                 per_capita_nacional = (massa_total_brasil_pc / pop_total_brasil_pc) * 1000 if pop_total_brasil_pc > 0 else 0
 
                 # =========================================================
-                # INDICADORES REAIS (SNIS) E ESTIMADOS (fração orgânica 50%)
+                # INDICADORES REAIS (SINISA) E ESTIMADOS (fração orgânica 50%)
                 # =========================================================
                 per_capita_dia = per_capita_nacional / 365.0 if per_capita_nacional > 0 else 0.0
 
@@ -739,10 +739,10 @@ with tab_tradicional:
                 pct_municipios_50 = (len(df_ate_50) / len(df_ordenado)) * 100
 
                 # =========================================================
-                # PAINEL 1 — DADOS REAIS DO SNIS (4 cards)
+                # PAINEL 1 — DADOS REAIS DO SINISA (4 cards)
                 # ⚖️ Massa total coletada | 👥 População | 📊 Per capita anual | 📆 Per capita diário
                 # =========================================================
-                st.markdown("##### 📋 Indicadores extraídos diretamente do SNIS")
+                st.markdown("##### 📋 Indicadores extraídos diretamente do SINISA")
                 col1, col2, col3, col4 = st.columns(4)
                 col1.metric(
                     "⚖️ Massa total coletada",
@@ -750,14 +750,14 @@ with tab_tradicional:
                     help="Soma da massa dos municípios que reportaram coleta (influenciada pela opção 'Ocultar transbordos')."
                 )
                 col2.metric(
-                    "👥 População total (SNIS)",
+                    "👥 População total (SINISA)",
                     f"{formatar_br(pop_total_brasil_pc, auto_precision=False, casas_override=0)} hab",
                     help=f"Soma da coluna J de TODOS os {TOTAL_MUNICIPIOS_CADASTRO} municípios cadastrados na aba 'Manejo_Resíduos_Sólidos_Urbanos' (sem filtros)."
                 )
                 col3.metric(
                     "📊 Per capita anual",
                     f"{formatar_br(per_capita_nacional, auto_precision=False, casas_override=0)} kg/hab/ano",
-                    help="Massa total ÷ População total (SNIS) × 1000. Reflete a realidade nacional (municípios grandes pesam mais)."
+                    help="Massa total ÷ População total (SINISA) × 1000. Reflete a realidade nacional (municípios grandes pesam mais)."
                 )
                 col4.metric(
                     "📆 Per capita diário",
@@ -775,15 +775,15 @@ with tab_tradicional:
                 with st.container(border=True):
                     st.markdown("##### 🔬 Estimativas — fração orgânica de referência")
                     st.caption(
-                        f"Os dois indicadores abaixo **não** vêm diretamente da planilha do SNIS. "
+                        f"Os dois indicadores abaixo **não** vêm diretamente da planilha do SINISA. "
                         f"São **estimativas** calculadas multiplicando-se os indicadores reais acima "
                         f"pela fração orgânica de referência de "
                         f"**{formatar_br(fracao_organica_nacional*100, auto_precision=False, casas_override=0)}%** — "
-                        f"conforme Pimentel e Capanema (2025): *\"os resíduos orgânicos correspondem "
+                        f"conforme Pimentel e Capanema (2025): os resíduos orgânicos correspondem "
                         f"a mais da metade do total coletado nas cidades brasileiras\"* "
                         f"(restos de comida, vegetais e frutas). Adota-se o piso conservador de 50% "
                         f"porque muitos municípios não realizaram estudo de caracterização dos RSU "
-                        f"nos últimos 5 anos e, portanto, não preencheram as colunas GTR1501/GTR1505 no SNIS."
+                        f"nos últimos 5 anos e, portanto, não preencheram as colunas GTR1501/GTR1505 no SINISA."
                     )
                     col1, col2 = st.columns(2)
                     col1.metric(
@@ -833,7 +833,7 @@ with tab_tradicional:
 
                 **Per capita nacional:** {formatar_br(per_capita_nacional, auto_precision=False, casas_override=0)} kg/hab/ano
                 = {formatar_br(per_capita_dia, auto_precision=False, casas_override=2)} kg/hab/dia
-                — Massa total ({formatar_br(massa_total_brasil_pc, auto_precision=False, casas_override=0)} t) ÷ População total SNIS ({formatar_br(pop_total_brasil_pc, auto_precision=False, casas_override=0)} hab) × 1000.
+                — Massa total ({formatar_br(massa_total_brasil_pc, auto_precision=False, casas_override=0)} t) ÷ População total SINISA ({formatar_br(pop_total_brasil_pc, auto_precision=False, casas_override=0)} hab) × 1000.
 
                 **Fração orgânica de referência (estimativa):** {formatar_br(fracao_organica_nacional*100, auto_precision=False, casas_override=0)}%
                 (Pimentel e Capanema, 2025 — "mais da metade do total coletado nas cidades brasileiras",
@@ -881,24 +881,24 @@ with tab_tradicional:
     plt.tight_layout()
     st.pyplot(fig_dest)
     plt.close(fig_dest)
-    st.caption("📌 Classificação dos destinos feita pela IA (PLN) para padronizar as variações textuais do SNIS.")
+    st.caption("📌 Classificação dos destinos feita pela IA (PLN) para padronizar as variações textuais do SINISA.")
 
     st.markdown("#### 📋 Detalhamento por rota de coleta")
     tabela_destino = df_mun_dest[[COL_CODIGO_ROTA, COL_TIPO_COLETA, COL_DESTINO, "MASSA_FLOAT"]].copy()
     tabela_destino = tabela_destino.rename(columns={
         COL_CODIGO_ROTA: "Código Rota",
         COL_TIPO_COLETA: "Tipo de Coleta",
-        COL_DESTINO: "Tipo de Unidade (SNIS)",
+        COL_DESTINO: "Tipo de Unidade (SINISA)",
         "MASSA_FLOAT": "Massa (t)"
     })
     tabela_destino["%"] = (tabela_destino["Massa (t)"] / massa_total_geral) * 100 if massa_total_geral > 0 else 0
     tabela_destino["Massa (t)"] = tabela_destino["Massa (t)"].apply(formatar_numero_br)
     tabela_destino["%"] = tabela_destino["%"].apply(lambda x: formatar_numero_br(x, 1))
     st.dataframe(
-        tabela_destino[["Código Rota", "Tipo de Coleta", "Tipo de Unidade (SNIS)", "Massa (t)", "%"]],
+        tabela_destino[["Código Rota", "Tipo de Coleta", "Tipo de Unidade (SINISA)", "Massa (t)", "%"]],
         use_container_width=True
     )
-    st.caption("📌 Os dados refletem fielmente os registros do SNIS. A classificação dos destinos é feita pela IA.")
+    st.caption("📌 Os dados refletem fielmente os registros do SINISA. A classificação dos destinos é feita pela IA.")
 
     if municipio == municipios[0]:
         st.markdown("---")
@@ -917,7 +917,7 @@ with tab_tradicional:
         agg_destino["Massa (t)"] = agg_destino["MASSA_FLOAT"].apply(formatar_numero_br)
         agg_destino["Percentual (%)"] = agg_destino["Percentual (%)"].apply(lambda x: formatar_numero_br(x, 2))
         st.dataframe(
-            agg_destino.rename(columns={COL_DESTINO: "Tipo de Unidade (SNIS)"})[["Tipo de Unidade (SNIS)", "Massa (t)", "Percentual (%)"]],
+            agg_destino.rename(columns={COL_DESTINO: "Tipo de Unidade (SINISA)"})[["Tipo de Unidade (SINISA)", "Massa (t)", "Percentual (%)"]],
             use_container_width=True
         )
         st.markdown("#### 📊 Principais destinos (gráfico)")
@@ -1023,7 +1023,7 @@ with tab_tradicional:
                         "Massa Total (t/ano)": massa_total_local,
                         "Massa para Aterro (t/ano)": massa_aterro_local,
                         "% da massa total": pct_org,
-                        "Tipo(s) de Unidade (SNIS)": destinos,
+                        "Tipo(s) de Unidade (SINISA)": destinos,
                         "Receita Potencial (R$/ano)": receita_anual
                     })
                 df_mapeamento = pd.DataFrame(mapeamento).sort_values("Massa Total (t/ano)", ascending=False)
@@ -1040,7 +1040,7 @@ with tab_tradicional:
                 st.caption("""
                 - **Baseline (aterro)**: alinhado à UNFCCC A6.4-AMT-003 (Application B) – CH₄ apenas, φ=0.85, OX=0.383, GWP_CH4=28.
                 - **Cenário de compostagem**: UNFCCC TOOL13 / AMS-III.F – CH₄=0.002, N₂O=0.0002, GWP_CH4=28, GWP_N2O=265.
-                - **DOC e k**: calculados dinamicamente a partir da caracterização dos resíduos do SNIS (quando disponível).
+                - **DOC e k**: calculados dinamicamente a partir da caracterização dos resíduos do SINISA (quando disponível).
                 - **MCF**: ponderado pelos diferentes destinos (aterro sanitário, controlado, lixão) de acordo com a Tabela 8 do anexo.
                 - **% da massa total**: percentual da massa total de RSU do município que é composta por orgânicos da coleta seletiva.
                 - Receita potencial anual considerando o preço atual do carbono.
@@ -1174,9 +1174,9 @@ with tab_tradicional:
 
     st.markdown("---")
     st.caption(f"""
-    Fonte: SNIS (ano {ano_selecionado}) | **Metodologia: UNFCCC A6.4-AMT-003 (2025) + TOOL13 (AMS-III.F)** | IPCC AR5 (GWP-100)
+    Fonte: SINISA (ano {ano_selecionado}) | **Metodologia: UNFCCC A6.4-AMT-003 (2025) + TOOL13 (AMS-III.F)** | IPCC AR5 (GWP-100)
     Baseline (aterro): CH₄ apenas, φ=0.85, OX=0.383, GWP_CH4=28 | Compostagem: CH₄=0.002, N₂O=0.0002, GWP_CH4=28, GWP_N2O=265
-    DOC/k: ponderados pela caracterização dos resíduos do SNIS (quando disponível) | Cotações em tempo real via Yahoo Finance e APIs de câmbio.
+    DOC/k: ponderados pela caracterização dos resíduos do SINISA (quando disponível) | Cotações em tempo real via Yahoo Finance e APIs de câmbio.
     Fração orgânica de referência: 50% (Pimentel e Capanema, 2025).
     """)
 
@@ -1200,7 +1200,7 @@ with tab_ia:
     # --- Classificação PLN ---
     st.subheader("📋 Classificação Inteligente de Destinos (PLN)")
     st.markdown("""
-    O SNIS apresenta **diversas variações textuais** para descrever o mesmo destino
+    O SINISA apresenta **diversas variações textuais** para descrever o mesmo destino
     (ex: "Aterro Sanitário", "AS", "Aterro Sani.", "Aterro – Gerenciado").
 
     O **Composta.IA** utiliza um modelo de **Regressão Logística com TF-IDF** para:
@@ -1324,7 +1324,7 @@ with tab_ia:
     st.subheader("📈 Previsão de Geração de Resíduos por Habitante")
     st.markdown("""
     Projeta a quantidade de resíduos que o município (ou o Brasil inteiro) precisará gerenciar
-    com base no crescimento populacional. A geração per capita é mantida constante a partir dos dados atuais do SNIS.
+    com base no crescimento populacional. A geração per capita é mantida constante a partir dos dados atuais do SINISA.
     """)
     opcoes_proj = ["BRASIL – Todos os municípios"] + sorted(df_clean[COL_MUNICIPIO].unique())
     municipio_proj = st.selectbox(
@@ -1334,16 +1334,16 @@ with tab_ia:
     )
     if municipio_proj:
         # =========================================================
-        # A POPULAÇÃO É OBTIDA DIRETAMENTE DA COLUNA J DO SNIS
+        # A POPULAÇÃO É OBTIDA DIRETAMENTE DA COLUNA J DO SINISA
         # - Brasil: soma das populações de todos os municípios únicos
-        # - Município: valor real do SNIS
+        # - Município: valor real do SINISA
         # (o st.number_input continua disponível apenas para ajuste manual opcional)
         # =========================================================
         if municipio_proj == "BRASIL – Todos os municípios":
             df_mun_proj = df_clean.copy()
             massa_atual = df_mun_proj['MASSA_COLETADA'].sum()
 
-            # SOMA DAS POPULAÇÕES DE TODOS OS MUNICÍPIOS ÚNICOS (coluna J do SNIS)
+            # SOMA DAS POPULAÇÕES DE TODOS OS MUNICÍPIOS ÚNICOS (coluna J do SINISA)
             pop_calculada = (
                 df_mun_proj
                 .drop_duplicates(subset=[COL_MUNICIPIO])
@@ -1353,7 +1353,7 @@ with tab_ia:
             if pop_calculada <= 0:
                 pop_calculada = 210000000  # fallback apenas se a coluna J vier zerada
 
-            st.info(f"📌 População total do Brasil (soma da coluna J do SNIS): **{formatar_br(pop_calculada, auto_precision=False, casas_override=0)} habitantes**")
+            st.info(f"📌 População total do Brasil (soma da coluna J do SINISA): **{formatar_br(pop_calculada, auto_precision=False, casas_override=0)} habitantes**")
             pop_atual = st.number_input(
                 "População total do Brasil (habitantes) – ajuste opcional:",
                 min_value=1000,
@@ -1366,14 +1366,14 @@ with tab_ia:
             df_mun_proj = df_clean[df_clean[COL_MUNICIPIO] == municipio_proj]
             massa_atual = df_mun_proj['MASSA_COLETADA'].sum()
 
-            # POPULAÇÃO REAL DO MUNICÍPIO (coluna J do SNIS)
+            # POPULAÇÃO REAL DO MUNICÍPIO (coluna J do SINISA)
             pop_serie = (
                 df_mun_proj
                 .drop_duplicates(subset=[COL_MUNICIPIO])['POPULACAO_TOTAL']
             )
             pop_calculada = float(pop_serie.iloc[0]) if (not pop_serie.empty and pop_serie.iloc[0] > 0) else 50000
 
-            st.info(f"📌 População de {municipio_proj} (coluna J do SNIS): **{formatar_br(pop_calculada, auto_precision=False, casas_override=0)} habitantes**")
+            st.info(f"📌 População de {municipio_proj} (coluna J do SINISA): **{formatar_br(pop_calculada, auto_precision=False, casas_override=0)} habitantes**")
             pop_atual = st.number_input(
                 f"População atual do município (habitantes) – {municipio_proj} – ajuste opcional:",
                 min_value=100,
@@ -1492,7 +1492,7 @@ with tab_ia:
                                 A cada ano, a quantidade de resíduos desviada para compostagem aumenta, gerando mais emissões evitadas e, consequentemente, mais receita com créditos de carbono.  
                                 O valor acumulado mostra o potencial total de ganhos ao longo do período.
                                 """)
-                            st.info("ℹ️ Esta simulação considera o aumento gradual da compostagem ano a ano, com base nos dados atuais do SNIS. O valor é acumulado.")
+                            st.info("ℹ️ Esta simulação considera o aumento gradual da compostagem ano a ano, com base nos dados atuais do SINISA. O valor é acumulado.")
                     except Exception as e:
                         st.error(f"Erro na simulação: {e}")
 
@@ -1508,7 +1508,7 @@ with tab_ia:
     )
     df_org = df_clean[mask_organicos].copy()
     if df_org.empty:
-        st.info("Nenhum município registrou coleta seletiva de resíduos orgânicos no SNIS para este ano.")
+        st.info("Nenhum município registrou coleta seletiva de resíduos orgânicos no SINISA para este ano.")
     else:
         with st.spinner("Calculando evitados reais por município..."):
             df_evitado_mun = calcular_evitado_por_municipio(df_clean, COL_DESTINO, COL_MASSA)
@@ -1968,7 +1968,7 @@ with tab_ia:
 with tab_diagnostico:
     st.header("🔥 Diagnóstico de Emissões de Metano (Baseline)")
     st.markdown("""
-    Esta análise revela **quanto cada município emite com base nos dados mais recentes do SNIS** (ano selecionado), 
+    Esta análise revela **quanto cada município emite com base nos dados mais recentes do SINISA** (ano selecionado), 
     considerando **três fatores determinantes**:
     
     1. **Quantidade de resíduos** enviada a aterros (massa real declarada);
@@ -2042,7 +2042,7 @@ with tab_diagnostico:
     st.markdown("---")
     st.subheader("📊 Estatísticas Gerais da Base de Dados")
     col1, col2, col3 = st.columns(3)
-    col1.metric("🏙️ Total de municípios no SNIS", total_municipios_snis)
+    col1.metric("🏙️ Total de municípios no SINISA", total_municipios_snis)
     col2.metric("🗑️ Municípios que enviaram resíduos para aterro", total_municipios_aterro)
     col3.metric("📭 Municípios sem envio para aterro (ou dados zerados)", total_com_emissao_zero)
 
@@ -2059,7 +2059,7 @@ with tab_diagnostico:
         - **> 10.000 tCO₂e/ano**: Obrigação de MRV (Plano de Monitoramento e Relato).
         - **> 25.000 tCO₂e/ano**: Obrigação plena (MRV + entrega de Cotas Brasileiras de Emissão - CBEs).
         
-        Abaixo estão listados **todos os municípios** que, com base nos dados atuais do SNIS, já ultrapassariam o limiar de 10.000 tCO₂e/ano,
+        Abaixo estão listados **todos os municípios** que, com base nos dados atuais do SINISA, já ultrapassariam o limiar de 10.000 tCO₂e/ano,
         servindo como subsídio direto para a definição da **Etapa 2 (Resíduos)** do SBCE.
         """)
         
@@ -2483,7 +2483,7 @@ with tab_diagnostico:
         - **Emissão per capita**: emissão média anual dividida pela população do município (kgCO₂e/hab/ano).  
         - **Intensidade**: emissão média anual por tonelada de resíduo depositado. Quanto menor, melhor a gestão do aterro.  
         - **MCF**: 1,0 (Sanitário), 0,4-0,8 (Controlado), <0,4 (Lixão/Precário) – conforme Tabela 8 da norma.
-        - DOC/k calculados dinamicamente pela caracterização do resíduo no SNIS (colunas GTR1501 a GTR1507).
+        - DOC/k calculados dinamicamente pela caracterização do resíduo no SINISA (colunas GTR1501 a GTR1507).
         - **Cenário Contínuo**: considera depósitos anuais repetidos, calculando a emissão no 20º ano de operação.
         """)
 
@@ -2508,6 +2508,6 @@ mapear oportunidades de compostagem e auxiliar municípios a se prepararem para 
 st.markdown("---")
 st.caption("""
 **Composta.IA** | Ferramenta de apoio à gestão de resíduos sólidos e créditos de carbono  
-Dados: SNIS (2023/2024) | Metodologia: UNFCCC A6.4-AMT-003 (2025) + TOOL13 (AMS-III.F) | IPCC AR5 (GWP-100)
+Dados: SINISA (2023/2024) | Metodologia: UNFCCC A6.4-AMT-003 (2025) + TOOL13 (AMS-III.F) | IPCC AR5 (GWP-100)
 Fração orgânica de referência: 50% (Pimentel e Capanema, 2025).
 """)
