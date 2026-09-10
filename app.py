@@ -226,6 +226,29 @@ def calcular_doc_k_ponderado(df_municipio):
     return doc_pond, docf_pond, k_pond
 
 # =========================================================
+# FUNÇÃO: FRAÇÃO ORGÂNICA DE REFERÊNCIA (Pimentel e Capanema, 2025)
+# =========================================================
+def calcular_fracao_organica_nacional(df):
+    """
+    Retorna a fração orgânica de referência para o Brasil.
+
+    Referência: Pimentel e Capanema (2025), citados na tese (p. 44):
+    "os resíduos orgânicos correspondem a mais da metade do total coletado
+    nas cidades brasileiras, configurando um recurso estratégico que, se
+    adequadamente tratado, pode ser convertido em fertilizantes, energia e
+    insumos para a agricultura."
+
+    Como muitos municípios não realizaram estudo de caracterização dos RSU
+    nos últimos 5 anos (não preenchendo GTR1501/GTR1505 no SNIS), adota-se
+    o valor conservador de 50% (piso de "mais da metade") para a fração
+    orgânica dos RSU coletados no Brasil.
+
+    O parâmetro 'df' é mantido na assinatura para compatibilidade e
+    possíveis usos futuros (ex.: ponderação municipal quando houver dados).
+    """
+    return 0.50
+
+# =========================================================
 # FUNÇÃO DE CÁLCULO – ATERRO (BASELINE UNFCCC) - MODELO ANUAL (EQUAÇÃO 1)
 # =========================================================
 def calcular_co2eq_aterro_20anos(massa_t_ano, mcf, k_ano, doc_pond, docf_pond):
@@ -309,8 +332,6 @@ def calcular_evitado_por_municipio(df, col_destino, col_massa):
         })
     return pd.DataFrame(resultados)
 
-
-#B5
 
 #B5
 
@@ -458,8 +479,6 @@ def projetar_emissao_continua(massa_anual_t, mcf, k, doc, docf, anos=20):
     
     return pd.DataFrame(resultados)
 
-
-#B6
 
 #B6
 
@@ -697,6 +716,23 @@ with tab_tradicional:
                 pop_total_brasil_pc = POPULACAO_BRASIL_SNIS  # 5.570 municípios, sem filtro
                 per_capita_nacional = (massa_total_brasil_pc / pop_total_brasil_pc) * 1000 if pop_total_brasil_pc > 0 else 0
 
+                # =========================================================
+                # INDICADORES DERIVADOS
+                #   1. Per capita anual (kg/hab/ano)  = per_capita_nacional
+                #   2. Per capita diário (kg/hab/dia) = per_capita_nacional / 365
+                #   3. Orgânico anual (kg/hab/ano)    = per_capita_nacional × 0,50
+                #   4. Orgânico diário (kg/hab/dia)   = per_capita_diario × 0,50
+                # =========================================================
+                per_capita_dia = per_capita_nacional / 365.0 if per_capita_nacional > 0 else 0.0
+
+                # Fração orgânica de referência (50%) — Pimentel e Capanema (2025):
+                # "os resíduos orgânicos correspondem a mais da metade do total
+                #  coletado nas cidades brasileiras". Adota-se o piso conservador 50%.
+                fracao_organica_nacional = calcular_fracao_organica_nacional(df_panorama)
+
+                per_capita_organico_ano = per_capita_nacional * fracao_organica_nacional
+                per_capita_organico_dia = per_capita_dia * fracao_organica_nacional
+
                 df_ordenado = df_massa_mun.sort_values('MASSA_COLETADA', ascending=False).copy()
                 df_ordenado['massa_acumulada'] = df_ordenado['MASSA_COLETADA'].cumsum()
                 massa_total = df_ordenado['MASSA_COLETADA'].sum()
@@ -707,10 +743,15 @@ with tab_tradicional:
                 pct_municipios_50 = (len(df_ate_50) / len(df_ordenado)) * 100
 
                 # =========================================================
-                # PAINEL PRINCIPAL: MASSA TOTAL, POPULAÇÃO TOTAL E PER CAPITA NACIONAL
-                # A massa é influenciada pelo checkbox "Ocultar transbordos"
+                # PAINEL PRINCIPAL: 6 INDICADORES (uma única linha)
+                #   1. Massa total coletada                  (t)
+                #   2. População total (SNIS)                (hab)
+                #   3. Per capita anual                      (kg/hab/ano)
+                #   4. Per capita diário                     (kg/hab/dia)
+                #   5. Orgânico anual (50%)                  (kg/hab/ano)
+                #   6. Orgânico diário (50%)                 (kg/hab/dia)
                 # =========================================================
-                col1, col2, col3 = st.columns(3)
+                col1, col2, col3, col4, col5, col6 = st.columns(6)
                 col1.metric(
                     "⚖️ Massa total coletada",
                     f"{formatar_br(massa_total_brasil_pc, auto_precision=False, casas_override=0)} t",
@@ -722,9 +763,33 @@ with tab_tradicional:
                     help=f"Soma da coluna J de TODOS os {TOTAL_MUNICIPIOS_CADASTRO} municípios cadastrados na aba 'Manejo_Resíduos_Sólidos_Urbanos' (sem filtros)."
                 )
                 col3.metric(
-                    "📊 Per capita nacional",
+                    "📊 Per capita anual",
                     f"{formatar_br(per_capita_nacional, auto_precision=False, casas_override=0)} kg/hab/ano",
                     help="Massa total ÷ População total (SNIS) × 1000. Reflete a realidade nacional (municípios grandes pesam mais)."
+                )
+                col4.metric(
+                    "📆 Per capita diário",
+                    f"{formatar_br(per_capita_dia, auto_precision=False, casas_override=2)} kg/hab/dia",
+                    help="Per capita anual ÷ 365. Indicador clássico de geração diária de RSU (≈ 1 kg/hab/dia)."
+                )
+                col5.metric(
+                    "🌱 Orgânico anual",
+                    f"{formatar_br(per_capita_organico_ano, auto_precision=False, casas_override=0)} kg/hab/ano",
+                    help=(
+                        f"Per capita anual × fração orgânica de referência "
+                        f"({formatar_br(fracao_organica_nacional*100, auto_precision=False, casas_override=0)}%). "
+                        "Referência: Pimentel e Capanema (2025) — 'os resíduos orgânicos correspondem "
+                        "a mais da metade do total coletado nas cidades brasileiras' (restos de comida, "
+                        "vegetais e frutas). Adotado 50% (piso conservador)."
+                    )
+                )
+                col6.metric(
+                    "🌱 Orgânico diário",
+                    f"{formatar_br(per_capita_organico_dia*1000, auto_precision=False, casas_override=0)} g/hab/dia",
+                    help=(
+                        "Per capita diário × fração orgânica de referência (50%). "
+                        "Equivale a ≈ 500 g de restos de comida, vegetais e frutas por habitante por dia."
+                    )
                 )
 
                 # Gráfico de concentração (Pareto)
@@ -753,7 +818,15 @@ with tab_tradicional:
                 st.caption(f"""
                 📌 **Interpretação:** A curva demonstra que os **{formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}% maiores municípios** (em massa) concentram **80% de todo o RSU do Brasil{legenda_extra}**.
 
-                **Per capita nacional:** {formatar_br(per_capita_nacional, auto_precision=False, casas_override=0)} kg/hab/ano — Massa total ({formatar_br(massa_total_brasil_pc, auto_precision=False, casas_override=0)} t) ÷ População total SNIS ({formatar_br(pop_total_brasil_pc, auto_precision=False, casas_override=0)} hab) × 1000.
+                **Per capita nacional:** {formatar_br(per_capita_nacional, auto_precision=False, casas_override=0)} kg/hab/ano
+                = {formatar_br(per_capita_dia, auto_precision=False, casas_override=2)} kg/hab/dia
+                — Massa total ({formatar_br(massa_total_brasil_pc, auto_precision=False, casas_override=0)} t) ÷ População total SNIS ({formatar_br(pop_total_brasil_pc, auto_precision=False, casas_override=0)} hab) × 1000.
+
+                **Fração orgânica de referência:** {formatar_br(fracao_organica_nacional*100, auto_precision=False, casas_override=0)}%
+                (Pimentel e Capanema, 2025 — "mais da metade do total coletado nas cidades brasileiras",
+                considerando restos de comida, vegetais e frutas)
+                → **{formatar_br(per_capita_organico_ano, auto_precision=False, casas_override=0)} kg orgânico/hab/ano**
+                ou **{formatar_br(per_capita_organico_dia*1000, auto_precision=False, casas_override=0)} g orgânico/hab/dia** (≈ 500 g/dia).
                 """)
             else:
                 st.warning("Dados insuficientes para calcular estatísticas nacionais.")
@@ -1091,6 +1164,7 @@ with tab_tradicional:
     Fonte: SNIS (ano {ano_selecionado}) | **Metodologia: UNFCCC A6.4-AMT-003 (2025) + TOOL13 (AMS-III.F)** | IPCC AR5 (GWP-100)
     Baseline (aterro): CH₄ apenas, φ=0.85, OX=0.383, GWP_CH4=28 | Compostagem: CH₄=0.002, N₂O=0.0002, GWP_CH4=28, GWP_N2O=265
     DOC/k: ponderados pela caracterização dos resíduos do SNIS (quando disponível) | Cotações em tempo real via Yahoo Finance e APIs de câmbio.
+    Fração orgânica de referência: 50% (Pimentel e Capanema, 2025).
     """)
 
 
@@ -2422,4 +2496,5 @@ st.markdown("---")
 st.caption("""
 **Composta.IA** | Ferramenta de apoio à gestão de resíduos sólidos e créditos de carbono  
 Dados: SNIS (2023/2024) | Metodologia: UNFCCC A6.4-AMT-003 (2025) + TOOL13 (AMS-III.F) | IPCC AR5 (GWP-100)
+Fração orgânica de referência: 50% (Pimentel e Capanema, 2025).
 """)
