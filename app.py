@@ -780,7 +780,7 @@ with tab_tradicional:
                         f"pela fração orgânica de referência de "
                         f"**{formatar_br(fracao_organica_nacional*100, auto_precision=False, casas_override=0)}%** — "
                         f"conforme Pimentel e Capanema (2025): os resíduos orgânicos correspondem "
-                        f"a mais da metade do total coletado nas cidades brasileiras\"* "
+                        f"a mais da metade do total coletado nas cidades brasileiras\" "
                         f"(restos de comida, vegetais e frutas). Adota-se o piso conservador de 50% "
                         f"porque muitos municípios não realizaram estudo de caracterização dos RSU "
                         f"nos últimos 5 anos e, portanto, não preencheram as colunas GTR1501/GTR1505 no SINISA."
