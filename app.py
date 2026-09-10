@@ -778,7 +778,7 @@ with tab_tradicional:
                         f"Os dois indicadores abaixo **não** vêm diretamente da planilha do SINISA. "
                         f"São **estimativas** calculadas multiplicando-se os indicadores reais acima "
                         f"pela fração orgânica de referência de "
-                        f"**{formatar_br(fracao_organica_nacional*100, auto_precision=False, casas_override=0)}%**"
+                        f"**{formatar_br(fracao_organica_nacional*100, auto_precision=False, casas_override=0)}%"
                         f"conforme Pimentel e Capanema (2025): os resíduos orgânicos correspondem "
                         f"a mais da metade do total coletado nas cidades brasileiras\" "
                         f"(restos de comida, vegetais e frutas). Adota-se o piso conservador de 50% "
