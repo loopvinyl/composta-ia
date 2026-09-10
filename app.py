@@ -658,6 +658,16 @@ with tab_tradicional:
                 q3 = df_massa_mun['per_capita_kg'].quantile(0.75)
                 minimo = df_massa_mun['per_capita_kg'].min()
                 maximo = df_massa_mun['per_capita_kg'].max()
+
+                # =========================================================
+                # ✅ NOVO: PER CAPITA NACIONAL AGREGADO
+                # (soma da massa total ÷ soma da população total × 1000)
+                # Este é o valor oficial do país: municípios grandes pesam mais.
+                # =========================================================
+                massa_total_brasil_pc = df_massa_mun['MASSA_COLETADA'].sum()
+                pop_total_brasil_pc = df_massa_mun['POPULACAO_TOTAL'].sum()
+                per_capita_nacional = (massa_total_brasil_pc / pop_total_brasil_pc) * 1000 if pop_total_brasil_pc > 0 else 0
+
                 df_ordenado = df_massa_mun.sort_values('MASSA_COLETADA', ascending=False).copy()
                 df_ordenado['massa_acumulada'] = df_ordenado['MASSA_COLETADA'].cumsum()
                 massa_total = df_ordenado['MASSA_COLETADA'].sum()
@@ -666,18 +676,35 @@ with tab_tradicional:
                 pct_municipios_80 = (len(df_ate_80) / len(df_ordenado)) * 100
                 df_ate_50 = df_ordenado[df_ordenado['pct_acumulado'] <= 50]
                 pct_municipios_50 = (len(df_ate_50) / len(df_ordenado)) * 100
-                
+
+                # =========================================================
                 # MÉTRICAS COM st.metric() - VALOR CURTO, INFO NO HELP
-                col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Média per capita", f"{formatar_br(media, auto_precision=False, casas_override=0)} kg/hab/ano")
-                col2.metric("Mediana per capita", f"{formatar_br(mediana, auto_precision=False, casas_override=0)} kg/hab/ano")
-                col3.metric("Quartis (25/75%)", f"{formatar_br(q1, auto_precision=False, casas_override=0)} / {formatar_br(q3, auto_precision=False, casas_override=0)} kg/hab/ano")
+                # =========================================================
+                col1, col2, col3, col4, col5 = st.columns(5)
+                col1.metric(
+                    "Per capita nacional",
+                    f"{formatar_br(per_capita_nacional, auto_precision=False, casas_override=0)} kg/hab/ano",
+                    help="Soma da massa total ÷ soma da população total × 1000. Reflete a realidade nacional (municípios grandes pesam mais)."
+                )
+                col2.metric(
+                    "Média municipal",
+                    f"{formatar_br(media, auto_precision=False, casas_override=0)} kg/hab/ano",
+                    help="Média simples dos per capita municipais (cada município pesa igual, independente do tamanho)."
+                )
+                col3.metric(
+                    "Mediana municipal",
+                    f"{formatar_br(mediana, auto_precision=False, casas_override=0)} kg/hab/ano"
+                )
                 col4.metric(
-                    "Concentração (Pareto)", 
+                    "Quartis (25/75%)",
+                    f"{formatar_br(q1, auto_precision=False, casas_override=0)} / {formatar_br(q3, auto_precision=False, casas_override=0)} kg/hab/ano"
+                )
+                col5.metric(
+                    "Concentração (Pareto)",
                     f"{formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}%",
                     help=f"{formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}% dos municípios concentram 80% do RSU"
                 )
-                
+
                 # Gráfico de concentração (Pareto)
                 fig_conc, ax_conc = plt.subplots(figsize=(12, 7))
                 df_ordenado['pct_municipios'] = (np.arange(len(df_ordenado)) + 1) / len(df_ordenado) * 100
@@ -698,12 +725,14 @@ with tab_tradicional:
                 plt.tight_layout()
                 st.pyplot(fig_conc)
                 plt.close(fig_conc)
-                
+
                 legenda_extra = " (transbordos ocultados)" if ocultar_transbordo_panorama else ""
-                
+
                 st.caption(f"""
                 📌 **Interpretação:** A curva demonstra que os **{formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}% maiores municípios** (em massa) concentram **80% de todo o RSU do Brasil{legenda_extra}**.
-                Média per capita: {formatar_br(media, auto_precision=False, casas_override=0)} kg/hab/ano | Mediana: {formatar_br(mediana, auto_precision=False, casas_override=0)} kg/hab/ano | Amplitude: {formatar_br(minimo, auto_precision=False, casas_override=0)} – {formatar_br(maximo, auto_precision=False, casas_override=0)} kg/hab/ano
+                
+                **Per capita nacional (agregado):** {formatar_br(per_capita_nacional, auto_precision=False, casas_override=0)} kg/hab/ano — soma da massa total ({formatar_br(massa_total_brasil_pc, auto_precision=False, casas_override=0)} t) ÷ soma da população total ({formatar_br(pop_total_brasil_pc, auto_precision=False, casas_override=0)} hab) × 1000.  
+                **Média municipal:** {formatar_br(media, auto_precision=False, casas_override=0)} kg/hab/ano | **Mediana:** {formatar_br(mediana, auto_precision=False, casas_override=0)} kg/hab/ano | **Amplitude:** {formatar_br(minimo, auto_precision=False, casas_override=0)} – {formatar_br(maximo, auto_precision=False, casas_override=0)} kg/hab/ano
                 """)
             else:
                 st.warning("Dados insuficientes para calcular estatísticas nacionais.")
