@@ -1,872 +1,632 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import requests
-from io import BytesIO
-import matplotlib.pyplot as plt
+# =====================================================================
+# COMPOSTA.IA - SCRIPT COMPLETO PARA GOOGLE COLAB
+# =====================================================================
+# Replica TODAS as funcionalidades do aplicativo Streamlit:
+# - Aba 1: Estatísticas tradicionais (SNIS), Pareto, distribuição por estado/destino
+# - Aba 2: Insights com IA (classificação PLN, clusterização, projeções, cenários)
+# - Aba 3: Diagnóstico de emissões (baseline UNFCCC, limiares SBCE, projeção contínua)
+#
+# Gera CSVs com todos os resultados e gráficos em PNG.
+# =====================================================================
+
+# 1. INSTALAÇÃO DE DEPENDÊNCIAS
+!pip install pandas numpy openpyxl scikit-learn scipy matplotlib seaborn requests yfinance beautifulsoup4 -q
+
+# 2. IMPORTAÇÃO DE BIBLIOTECAS
+import os
+import re
+import glob
 import unicodedata
-from collections import Counter
+import pickle
+import warnings
+from datetime import datetime
+import requests
+import yfinance as yf
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from matplotlib.ticker import FuncFormatter
+from matplotlib.patches import Patch
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+import seaborn as sns
+warnings.filterwarnings('ignore')
 
-# Configuração da página
-st.set_page_config(
-    page_title="Análise SINISA 2023 - Resíduos Sólidos Urbanos",
-    page_icon="🗑️",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# =====================================================================
+# 3. CONSTANTES E PARÂMETROS (IGUAIS AO APP)
+# =====================================================================
+GWP_CH4 = 28.0
+GWP_N2O = 265.0
+PHI_APPLICATION_B = 0.85
+OX_SOIL_COVER = 0.383
+F_METHANE_FRACTION = 0.5
+ANOS_PROJECAO = 20
+DIAS_PROJECAO = ANOS_PROJECAO * 365
 
-# Título e introdução
-st.title("🗑️ Análise SINISA 2023 - Resíduos Sólidos Urbanos")
-st.markdown("""
-### Sistema Nacional de Informações sobre Saneamento
-**Análise completa de dados municipais brasileiros para simulação de emissões de GEE**
-""")
-
-# URL do arquivo Excel
-EXCEL_URL = "https://github.com/loopvinyl/tco2eqv7/raw/main/rsuBrasil.xlsx"
-
-# Função para formatar números no padrão brasileiro
-def formatar_br(numero, casas_decimais=1, sufixo=""):
-    """Formata um número no padrão brasileiro (vírgula decimal, ponto milhar)"""
-    if pd.isna(numero) or numero is None:
-        return "N/A"
-    
-    try:
-        # Converter para float se for string
-        if isinstance(numero, str):
-            # Remover pontos de milhar e substituir vírgula decimal por ponto
-            numero = float(numero.replace(".", "").replace(",", "."))
-        
-        # Formatar com separador de milhar e vírgula decimal
-        if casas_decimais == 0:
-            formato = "{:,.0f}"
-        else:
-            formato = "{:,." + str(casas_decimais) + "f}"
-        
-        # Formatar com ponto para milhar
-        formatado = formato.format(numero)
-        
-        # Substituir vírgula por ponto temporariamente, depois ponto por vírgula
-        formatado = formatado.replace(",", "X").replace(".", ",").replace("X", ".")
-        
-        return f"{formatado}{sufixo}"
-    except:
-        return str(numero)
-
-@st.cache_data(ttl=3600)
-def carregar_dados_completos():
-    """
-    Carrega e processa os dados do Excel SINISA 2023
-    Retorna: dataframe filtrado e dicionário de colunas mapeadas
-    """
-    try:
-        # Download do arquivo
-        response = requests.get(EXCEL_URL, timeout=60)
-        response.raise_for_status()
-        excel_file = BytesIO(response.content)
-        
-        # Carregar como Excel
-        xls = pd.ExcelFile(excel_file)
-        
-        # Carregar aba específica SEM cabeçalho para análise
-        df_raw = pd.read_excel(xls, sheet_name="Manejo_Coleta_e_Destinação", header=None)
-        
-        # Encontrar linha de cabeçalho
-        header_row = None
-        for i in range(min(15, len(df_raw))):
-            # Verificar se esta linha tem os nomes das colunas conhecidos
-            row_vals = df_raw.iloc[i].astype(str).str.lower().values
-            
-            # Procurar por padrões de nomes de coluna
-            if any('col_' in v or 'massa' in v or 'destino' in v for v in row_vals):
-                header_row = i
-                break
-        
-        if header_row is None:
-            # Usar linha 0 como fallback
-            df = pd.read_excel(xls, sheet_name="Manejo_Coleta_e_Destinação")
-            st.info("Usando primeira linha como cabeçalho")
-        else:
-            df = pd.read_excel(xls, sheet_name="Manejo_Coleta_e_Destinação", header=header_row)
-            st.success(f"Cabeçalho identificado na linha {header_row + 1}")
-        
-        # Aplicar filtro: apenas registros com 'Sim' na primeira coluna
-        primeira_col = df.columns[0]
-        df_filtrado = df[df[primeira_col] == 'Sim'].copy()
-        
-        # Limpeza básica
-        df_filtrado = df_filtrado.replace(['', ' ', 'NaN', 'nan', 'NaT', 'None'], np.nan)
-        
-        return df_filtrado
-        
-    except Exception as e:
-        st.error(f"Erro ao carregar dados: {str(e)}")
-        return None
-
-def identificar_colunas_principais(df):
-    """
-    Identifica automaticamente as colunas principais baseadas no relatório SINISA
-    """
-    colunas = {}
-    
-    # Mapeamento baseado nas colunas reais do SINISA (corrigido)
-    mapeamento = {
-        'Município': ['município', 'municipio', 'cidade', 'local', 'nom_mun', 'localidade'],
-        'Estado': ['uf', 'estado', 'unidade da federação'],
-        'Região': ['região', 'regiao', 'nom_região', 'grande região', 'macrorregião'],
-        'População': ['população', 'populacao', 'habitantes', 'hab', 'pop', 'dfe0001', 'população total'],
-        'Tipo_Coleta': ['tipo de coleta executada', 'tipo_coleta', 'modalidade_coleta', 'gtr1001'],
-        'Massa_Total': ['massa de resíduos sólidos total coletada', 'massa total', 'toneladas', 'gtr1008'],
-        'Destino_Codigo': ['tipo de unidade de destino', 'código destino', 'destino_codigo', 'gtr1011'],
-        'Destino_Texto': ['tipo de unidade de destino', 'destino texto', 'destino_descricao', 'gtr1011'],
-        'Agente_Executor': ['tipo de executor do serviço de destino dos resíduos', 'agente executor', 'executor', 'gtr1012'],
-        'Secretaria': ['secretaria', 'setor responsável', 'cad1001', 'secretaria ou setor responsável']
-    }
-    
-    for tipo, padroes in mapeamento.items():
-        encontrada = False
-        for col in df.columns:
-            col_lower = str(col).lower()
-            for padrao in padroes:
-                if padrao in col_lower:
-                    colunas[tipo] = col
-                    encontrada = True
-                    break
-            if encontrada:
-                break
-    
-    # Fallback para colunas por índice se não encontrou por nome
-    if 'Município' not in colunas and len(df.columns) > 2:
-        # Tentar identificar por conteúdo
-        for i, col in enumerate(df.columns):
-            if i == 2:  # Provável coluna de município
-                colunas['Município'] = col
-                break
-    
-    if 'Estado' not in colunas and len(df.columns) > 3:
-        colunas['Estado'] = df.columns[3]
-    if 'Região' not in colunas and len(df.columns) > 4:
-        colunas['Região'] = df.columns[4]
-    if 'População' not in colunas and len(df.columns) > 9:
-        colunas['População'] = df.columns[9]
-    if 'Tipo_Coleta' not in colunas and len(df.columns) > 16:
-        colunas['Tipo_Coleta'] = df.columns[16]
-    if 'Massa_Total' not in colunas and len(df.columns) > 24:
-        colunas['Massa_Total'] = df.columns[24]
-    if 'Destino_Texto' not in colunas and len(df.columns) > 28:
-        colunas['Destino_Texto'] = df.columns[28]
-    if 'Agente_Executor' not in colunas and len(df.columns) > 29:
-        colunas['Agente_Executor'] = df.columns[29]
-    if 'Secretaria' not in colunas and len(df.columns) > 6:
-        colunas['Secretaria'] = df.columns[6]
-    
-    return colunas
+# =====================================================================
+# 4. FUNÇÕES AUXILIARES (CÓPIA EXATA DO APP)
+# =====================================================================
 
 def normalizar_texto(texto):
-    """Normaliza texto removendo acentos e convertendo para minúsculas"""
     if pd.isna(texto):
         return ""
-    texto = str(texto)
+    texto = str(texto).lower()
     texto = unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('ASCII')
-    return texto.lower().strip()
+    texto = re.sub(r'[^a-z0-9\s]', '', texto)
+    return texto.strip()
 
-def buscar_todas_linhas_municipio(df, municipio_nome, coluna_municipio):
-    """Busca TODAS as linhas de um município"""
-    if coluna_municipio not in df.columns:
+def classificar_destino_regra(texto):
+    if not texto or pd.isna(texto):
+        return "Indefinido"
+    t_lower = texto.lower()
+    if any(p in t_lower for p in ['aterro sanitario', 'aterro sanitário', 'as']):
+        return "Aterro Sanitário"
+    if any(p in t_lower for p in ['aterro controlado']):
+        return "Aterro Controlado"
+    if any(p in t_lower for p in ['lixao', 'vazadouro', 'lixão']):
+        return "Lixão"
+    if any(p in t_lower for p in ['compostagem', 'compost']):
+        return "Compostagem"
+    if any(p in t_lower for p in ['transbordo', 'transbord']):
+        return "Transbordo"
+    if any(p in t_lower for p in ['reciclagem', 'triagem', 'cooperativa']):
+        return "Reciclagem"
+    return "Outros"
+
+class ClassificadorDestinoIA:
+    def __init__(self):
+        self.vectorizer = None
+        self.classifier = None
+        self.classes = None
+
+    def treinar_com_dados_snis(self, df, col_texto):
+        textos = df[col_texto].dropna().astype(str).tolist()
+        if not textos:
+            return
+        textos_norm = [normalizar_texto(t) for t in textos]
+        labels = [classificar_destino_regra(t) for t in textos]
+        dados = [(t, l) for t, l in zip(textos_norm, labels) if l != "Indefinido"]
+        if not dados:
+            return
+        X, y = zip(*dados)
+        self.vectorizer = TfidfVectorizer(max_features=500)
+        X_vec = self.vectorizer.fit_transform(X)
+        self.classifier = LogisticRegression(max_iter=1000)
+        self.classifier.fit(X_vec, y)
+        self.classes = self.classifier.classes_
+
+    def prever(self, texto, threshold=0.3):
+        if self.classifier is None:
+            return classificar_destino_regra(texto)
+        texto_norm = normalizar_texto(texto)
+        if not texto_norm:
+            return "Indefinido"
+        X = self.vectorizer.transform([texto_norm])
+        probs = self.classifier.predict_proba(X)[0]
+        if max(probs) < threshold:
+            return classificar_destino_regra(texto)
+        return self.classifier.predict(X)[0]
+
+def encontrar_coluna(df, padroes):
+    for col in df.columns:
+        for padrao in padroes:
+            if padrao.lower() in col.lower():
+                return col
+    return None
+
+def calcular_doc_k_ponderado(df_municipio):
+    doc_map = {'GTR1501':0.15,'GTR1502':0.0,'GTR1503':0.0,'GTR1504':0.0,'GTR1505':0.40,'GTR1506':0.24,'GTR1507':0.10}
+    docf_map = {'GTR1501':0.7,'GTR1502':0.0,'GTR1503':0.0,'GTR1504':0.0,'GTR1505':0.5,'GTR1506':0.5,'GTR1507':0.1}
+    k_map = {'GTR1501':0.17,'GTR1502':0.0,'GTR1503':0.0,'GTR1504':0.0,'GTR1505':0.07,'GTR1506':0.07,'GTR1507':0.035}
+    cols = [col for col in doc_map.keys() if col in df_municipio.columns]
+    if not cols:
+        return 0.15, 0.5, 0.07
+    pct = pd.to_numeric(df_municipio[cols], errors='coerce').fillna(0)
+    total = pct.sum().sum()
+    if total <= 0:
+        return 0.15, 0.5, 0.07
+    doc = sum(pct[col].sum() * doc_map.get(col,0) for col in cols) / total
+    docf = sum(pct[col].sum() * docf_map.get(col,0) for col in cols) / total
+    k = sum(pct[col].sum() * k_map.get(col,0) for col in cols) / total
+    return max(0.01,min(0.5,doc)), max(0.05,min(0.9,docf)), max(0.01,min(0.5,k))
+
+def determinar_mcf_por_destino(destino):
+    if pd.isna(destino):
+        return 0.0
+    norm = normalizar_texto(destino)
+    if "aterro sanitario" in norm:
+        return 0.8
+    elif "aterro controlado" in norm:
+        return 0.4
+    elif "lixao" in norm or "vazadouro" in norm:
+        return 0.4
+    return 0.0
+
+def calcular_co2eq_aterro_20anos(massa_t, mcf, k, doc, docf):
+    if massa_t <=0 or mcf<=0: return 0.0
+    massa_kg = massa_t*1000
+    ch4_pot = doc*docf*mcf*F_METHANE_FRACTION*(16/12)*(1-OX_SOIL_COVER)*PHI_APPLICATION_B
+    frac = 1 - np.exp(-k*ANOS_PROJECAO)
+    return (massa_kg * ch4_pot * frac * GWP_CH4) / 1000.0
+
+def calcular_co2eq_compostagem(massa_t):
+    if massa_t<=0: return 0.0
+    massa_kg = massa_t*1000
+    return (massa_kg*0.002*GWP_CH4 + massa_kg*0.0002*GWP_N2O)/1000.0
+
+def calcular_evitado_por_municipio(df):
+    resultados = []
+    mask = df['TIPO_COLETA_EXECUTADA'].astype(str).str.contains("seletiva.*orgânico|orgânico.*seletiva", case=False, na=False, regex=True)
+    df_org = df[mask].copy()
+    if df_org.empty:
+        return pd.DataFrame()
+    for mun in df_org['MUNICÍPIO'].unique():
+        df_mun = df[df['MUNICÍPIO']==mun].copy()
+        df_mun_org = df_org[df_org['MUNICÍPIO']==mun].copy()
+        massa_org = df_mun_org['MASSA_COLETADA'].sum()
+        if massa_org == 0: continue
+        doc, docf, k = calcular_doc_k_ponderado(df_mun)
+        df_mun['MCF'] = df_mun['DESTINO'].apply(determinar_mcf_por_destino)
+        df_aterro = df_mun[df_mun['MCF']>0].copy()
+        if not df_aterro.empty:
+            mcf_medio = (df_aterro['MASSA_COLETADA']*df_aterro['MCF']).sum() / df_aterro['MASSA_COLETADA'].sum()
+        else:
+            mcf_medio = 0.8
+        co2_aterro = calcular_co2eq_aterro_20anos(massa_org, mcf_medio, k, doc, docf)
+        co2_compost = calcular_co2eq_compostagem(massa_org)
+        resultados.append({'MUNICÍPIO': mun, 'Massa_Org_Seletiva': massa_org, 'Evitado_Total': co2_aterro - co2_compost})
+    return pd.DataFrame(resultados)
+
+def projetar_emissao_continua(massa_anual_t, mcf, k, doc, docf, anos=20):
+    if massa_anual_t <=0 or mcf<=0:
+        return pd.DataFrame()
+    ch4_pot = doc*docf*mcf*F_METHANE_FRACTION*(16/12)*(1-OX_SOIL_COVER)*PHI_APPLICATION_B
+    fator = ch4_pot * GWP_CH4
+    results = []
+    acum = 0.0
+    for ano in range(1, anos+1):
+        emissao_ano = 0.0
+        for i in range(1, ano+1):
+            idade = ano - i + 1
+            frac = np.exp(-k*(idade-1)) - np.exp(-k*idade)
+            emissao_ano += massa_anual_t * fator * frac
+        acum += emissao_ano
+        results.append({'Ano': datetime.now().year + ano, 'Emissao_Anual': emissao_ano, 'Emissao_Acumulada': acum})
+    return pd.DataFrame(results)
+
+def obter_cotacao_carbono():
+    try:
+        ticker = yf.Ticker("CO2.L")
+        data = ticker.history(period="1d")
+        if not data.empty:
+            preco = data['Close'].iloc[-1]
+            if 10 < preco < 200:
+                return preco, True
+    except: pass
+    return 85.50, False
+
+def obter_cotacao_euro():
+    try:
+        resp = requests.get("https://economia.awesomeapi.com.br/last/EUR-BRL", timeout=5)
+        if resp.status_code == 200:
+            return float(resp.json()['EURBRL']['bid']), True
+    except: pass
+    return 5.50, False
+
+# =====================================================================
+# 5. FUNÇÃO PARA LER OS ARQUIVOS EXCEL (ROBUSTA)
+# =====================================================================
+def carregar_snis(caminho):
+    xl = pd.ExcelFile(caminho)
+    # Tenta encontrar as abas corretas
+    aba_coleta = None
+    aba_caract = None
+    for nome in xl.sheet_names:
+        n = nome.lower()
+        if 'coleta' in n and 'destin' in n:
+            aba_coleta = nome
+        if 'resíduo' in n or 'caracter' in n or 'gtr' in n:
+            aba_caract = nome
+    if aba_coleta is None or aba_caract is None:
+        # Fallback: usa as duas primeiras abas
+        if len(xl.sheet_names) >= 2:
+            aba_coleta = xl.sheet_names[0]
+            aba_caract = xl.sheet_names[1]
+        else:
+            return None
+    # Tenta header=12 (padrão do SNIS) ou 0
+    df_coleta = None
+    for h in [12, 13, 0]:
+        try:
+            df_temp = pd.read_excel(caminho, sheet_name=aba_coleta, header=h)
+            if 'Cod_IBGE' in df_temp.columns or 'Município' in df_temp.columns or 'municipio' in df_temp.columns:
+                df_coleta = df_temp
+                break
+        except: continue
+    if df_coleta is None:
         return None
-    
-    # Normalizar nome do município buscado
-    municipio_busca = normalizar_texto(municipio_nome)
-    
-    # Normalizar coluna para busca
-    df_temp = df.copy()
-    df_temp['_temp_norm'] = df_temp[coluna_municipio].apply(normalizar_texto)
-    
-    # Buscar exato primeiro
-    mask_exato = df_temp['_temp_norm'] == municipio_busca
-    
-    # Se não encontrou exato, buscar por partes
-    if not mask_exato.any():
-        partes = [p for p in municipio_busca.split() if len(p) > 2]
-        if len(partes) > 1:
-            mask_parte = pd.Series(True, index=df_temp.index)
-            for parte in partes:
-                mask_parte = mask_parte & df_temp['_temp_norm'].str.contains(parte, na=False)
-            mask = mask_parte
-        else:
-            mask = df_temp['_temp_norm'].str.contains(municipio_busca[:5], na=False)
+    df_caract = None
+    for h in [12, 13, 0]:
+        try:
+            df_temp = pd.read_excel(caminho, sheet_name=aba_caract, header=h)
+            cols = [c for c in df_temp.columns if isinstance(c,str) and c.upper().startswith('GTR150')]
+            if cols:
+                df_caract = df_temp[['Cod_IBGE'] + cols] if 'Cod_IBGE' in df_temp else df_temp
+                break
+        except: continue
+    if df_caract is None:
+        df_caract = pd.DataFrame()
+    # Merge
+    if 'Cod_IBGE' in df_coleta and 'Cod_IBGE' in df_caract:
+        df = pd.merge(df_coleta, df_caract, on='Cod_IBGE', how='left')
     else:
-        mask = mask_exato
-    
-    resultados = df_temp[mask].copy()
-    
-    return resultados
+        df = df_coleta
+    return df
 
-def calcular_simulacao(massa_anual, cenario):
-    """Calcula a simulação de cenários de destinação de resíduos"""
-    
-    cenarios = {
-        "Cenário Atual": {
-            'Aterro': 0.85,
-            'Reciclagem': 0.08,
-            'Compostagem': 0.07,
-            'Emissões (t CO₂eq)': massa_anual * 0.8,
-            'Redução vs Atual': '0%',
-            'cor': '#e74c3c',
-            'descricao': 'Baseado em médias brasileiras atuais'
-        },
-        "Cenário de Economia Circular": {
-            'Aterro': 0.40,
-            'Reciclagem': 0.35,
-            'Compostagem': 0.25,
-            'Emissões (t CO₂eq)': massa_anual * 0.4,
-            'Redução vs Atual': '50%',
-            'cor': '#3498db',
-            'descricao': 'Aumento significativo de reciclagem e compostagem'
-        },
-        "Cenário Otimizado (Máxima Reciclagem)": {
-            'Aterro': 0.20,
-            'Reciclagem': 0.45,
-            'Compostagem': 0.35,
-            'Emissões (t CO₂eq)': massa_anual * 0.2,
-            'Redução vs Atual': '75%',
-            'cor': '#2ecc71',
-            'descricao': 'Máxima recuperação de materiais'
+# =====================================================================
+# 6. PROCESSAMENTO PRINCIPAL (LOOP POR ANO)
+# =====================================================================
+pasta = '/content/'
+arquivos = glob.glob(os.path.join(pasta, '*.xlsx'))
+print(f"📁 Encontrados {len(arquivos)} arquivos .xlsx em {pasta}\n")
+
+for arquivo in arquivos:
+    nome_base = os.path.basename(arquivo).replace('.xlsx', '')
+    print(f"\n{'='*60}")
+    print(f"🔍 PROCESSANDO: {nome_base}")
+    print('='*60)
+
+    try:
+        # 6.1 Carregar dados
+        df = carregar_snis(arquivo)
+        if df is None or df.empty:
+            print("❌ Erro: não foi possível carregar o arquivo.")
+            continue
+
+        # 6.2 Identificar colunas
+        col_mun = encontrar_coluna(df, ['município','municipio','nom_mun'])
+        col_uf = encontrar_coluna(df, ['uf','estado','sigla'])
+        col_tipo = encontrar_coluna(df, ['tipo de coleta','tipo coleta','coleta','gtr1001'])
+        col_massa = encontrar_coluna(df, ['massa coletada','massa (t)','massa total','quantidade coletada','gtr1008'])
+        col_destino = encontrar_coluna(df, ['destino','unidade','local de destinação','gtr1011'])
+        if None in [col_mun, col_uf, col_tipo, col_massa, col_destino]:
+            print("❌ Colunas não encontradas. Pulando.")
+            continue
+
+        df = df.rename(columns={col_mun:'MUNICÍPIO', col_tipo:'TIPO_COLETA_EXECUTADA',
+                               col_massa:'MASSA_COLETADA', col_uf:'UF', col_destino:'DESTINO'})
+        df['MASSA_COLETADA'] = pd.to_numeric(df['MASSA_COLETADA'], errors='coerce').fillna(0)
+        if 'DFE0001' in df.columns:
+            df.rename(columns={'DFE0001':'POPULACAO_TOTAL'}, inplace=True)
+        elif 'POPULACAO_TOTAL' not in df.columns:
+            for c in df.columns:
+                if 'popula' in c.lower():
+                    df.rename(columns={c:'POPULACAO_TOTAL'}, inplace=True); break
+
+        print(f"✅ Dados carregados: {df.shape[0]} linhas, {df['MUNICÍPIO'].nunique()} municípios")
+
+        # 6.3 Classificador IA
+        classificador = ClassificadorDestinoIA()
+        classificador.treinar_com_dados_snis(df, 'DESTINO')
+        df['DESTINO_IA'] = df['DESTINO'].apply(lambda x: classificador.prever(x, 0.3))
+
+        # =============================================================
+        # 7. ABAS DO APP - GERAÇÃO DE TODOS OS RESULTADOS
+        # =============================================================
+
+        # ---------- 7.1 Aba 1: Análise Tradicional (SNIS) ----------
+        print("📊 Gerando Análise Tradicional...")
+
+        # Estatísticas gerais
+        total_mun = df['MUNICÍPIO'].nunique()
+        df_temp = df.copy()
+        df_temp['MCF'] = df_temp['DESTINO'].apply(determinar_mcf_por_destino)
+        mun_com_aterro = df_temp[df_temp['MCF']>0]['MUNICÍPIO'].nunique()
+        estatisticas_gerais = pd.DataFrame({
+            'Ano': [nome_base],
+            'Total_Municipios': [total_mun],
+            'Municipios_com_Aterro': [mun_com_aterro],
+            'Municipios_sem_Aterro': [total_mun - mun_com_aterro],
+            'Massa_Total_RSU_t': [df['MASSA_COLETADA'].sum()]
+        })
+        estatisticas_gerais.to_csv(os.path.join(pasta, f'estatisticas_gerais_{nome_base}.csv'), index=False)
+
+        # Per capita e Pareto (massa)
+        df_massa_mun = df.groupby('MUNICÍPIO').agg({'MASSA_COLETADA':'sum', 'POPULACAO_TOTAL':'first'}).reset_index()
+        df_massa_mun = df_massa_mun[(df_massa_mun['MASSA_COLETADA']>0) & (df_massa_mun['POPULACAO_TOTAL']>0)].copy()
+        if not df_massa_mun.empty:
+            df_massa_mun['per_capita'] = (df_massa_mun['MASSA_COLETADA'] / df_massa_mun['POPULACAO_TOTAL']) * 1000
+            stats_percapita = {
+                'Media_kg_hab': df_massa_mun['per_capita'].mean(),
+                'Mediana_kg_hab': df_massa_mun['per_capita'].median(),
+                'Q1_kg_hab': df_massa_mun['per_capita'].quantile(0.25),
+                'Q3_kg_hab': df_massa_mun['per_capita'].quantile(0.75)
+            }
+            pd.DataFrame([stats_percapita]).to_csv(os.path.join(pasta, f'percapita_stats_{nome_base}.csv'), index=False)
+
+            # Gráfico Pareto da massa
+            df_ord = df_massa_mun.sort_values('MASSA_COLETADA', ascending=False)
+            df_ord['pct_acum'] = df_ord['MASSA_COLETADA'].cumsum() / df_ord['MASSA_COLETADA'].sum() * 100
+            df_ord['pct_mun'] = (np.arange(len(df_ord))+1) / len(df_ord) * 100
+            fig, ax = plt.subplots(figsize=(10,6))
+            ax.plot(df_ord['pct_mun'], df_ord['pct_acum'], color='#1f77b4', linewidth=2)
+            ax.axhline(80, color='red', linestyle='--')
+            ax.set_xlabel('% acumulado de municípios'); ax.set_ylabel('% acumulado da massa')
+            ax.set_title(f'Concentração da Massa de RSU – {nome_base}')
+            ax.grid(True, linestyle=':')
+            plt.tight_layout()
+            plt.savefig(os.path.join(pasta, f'pareto_massa_{nome_base}.png'), dpi=150)
+            plt.close()
+
+        # Destinação agregada
+        agg_destino = df.groupby('DESTINO_IA')['MASSA_COLETADA'].sum().reset_index().sort_values('MASSA_COLETADA', ascending=False)
+        agg_destino.to_csv(os.path.join(pasta, f'destinacao_ia_{nome_base}.csv'), index=False)
+
+        # Coleta seletiva de orgânicos - Ranking
+        mask_org = df['TIPO_COLETA_EXECUTADA'].astype(str).str.contains("seletiva.*orgânico|orgânico.*seletiva", case=False, na=False, regex=True)
+        df_org = df[mask_org].copy()
+        if not df_org.empty:
+            ranking = df_org.groupby('MUNICÍPIO').agg({'MASSA_COLETADA':'sum', 'UF':'first'}).reset_index()
+            ranking = ranking.sort_values('MASSA_COLETADA', ascending=False)
+            ranking.to_csv(os.path.join(pasta, f'ranking_org_seletiva_{nome_base}.csv'), index=False)
+
+        # ---------- 7.2 Aba 2: Insights com IA ----------
+        print("🧠 Gerando Insights com IA...")
+
+        # Distribuição nacional da IA
+        contagem_ia = df['DESTINO_IA'].value_counts().reset_index()
+        contagem_ia.columns = ['Destino_IA', 'Quantidade']
+        contagem_ia.to_csv(os.path.join(pasta, f'distribuicao_ia_{nome_base}.csv'), index=False)
+
+        # Clusterização (K-Means)
+        print("   - Executando clusterização...")
+        # Preparar dados para cluster
+        df_cluster = df.groupby('MUNICÍPIO').agg({
+            'MASSA_COLETADA':'sum',
+            'UF':'first',
+            'POPULACAO_TOTAL':'first'
+        }).reset_index()
+        df_cluster = df_cluster[df_cluster['MASSA_COLETADA']>0].copy()
+        if not df_cluster.empty and len(df_cluster) >= 5:
+            # Cria features: massa per capita, % orgânico, % para aterro
+            df_cluster['per_capita'] = (df_cluster['MASSA_COLETADA'] / df_cluster['POPULACAO_TOTAL']) * 1000
+            df_cluster = df_cluster.fillna(0)
+            # % de orgânico na coleta seletiva (aproximado)
+            mask_org_mun = df[mask_org].groupby('MUNICÍPIO')['MASSA_COLETADA'].sum().reset_index().rename(columns={'MASSA_COLETADA':'Massa_Org'})
+            df_cluster = pd.merge(df_cluster, mask_org_mun, on='MUNICÍPIO', how='left').fillna(0)
+            df_cluster['pct_org'] = (df_cluster['Massa_Org'] / df_cluster['MASSA_COLETADA']) * 100
+            # % para aterro
+            df_mcf = df.groupby('MUNICÍPIO').apply(lambda x: (x['MASSA_COLETADA'] * x['DESTINO'].apply(determinar_mcf_por_destino)).sum() / x['MASSA_COLETADA'].sum() if x['MASSA_COLETADA'].sum()>0 else 0).reset_index(name='MCF_medio')
+            df_cluster = pd.merge(df_cluster, df_mcf, on='MUNICÍPIO', how='left').fillna(0)
+
+            features = df_cluster[['per_capita', 'pct_org', 'MCF_medio']].values
+            scaler = StandardScaler()
+            X_scaled = scaler.fit_transform(features)
+            if len(X_scaled) >= 4:
+                n_clusters = min(4, len(X_scaled)//2)
+                kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+                df_cluster['Cluster'] = kmeans.fit_predict(X_scaled)
+                # PCA para visualização
+                pca = PCA(n_components=2)
+                X_pca = pca.fit_transform(X_scaled)
+                df_cluster['PCA1'] = X_pca[:,0]; df_cluster['PCA2'] = X_pca[:,1]
+                df_cluster[['MUNICÍPIO','UF','Cluster','PCA1','PCA2','MASSA_COLETADA','per_capita','pct_org','MCF_medio']].to_csv(
+                    os.path.join(pasta, f'cluster_municipios_{nome_base}.csv'), index=False)
+                # Gráfico de clusters
+                fig, ax = plt.subplots(figsize=(10,8))
+                for cl in sorted(df_cluster['Cluster'].unique()):
+                    subset = df_cluster[df_cluster['Cluster']==cl]
+                    ax.scatter(subset['PCA1'], subset['PCA2'], label=f'Cluster {cl}', alpha=0.7, s=50)
+                ax.set_title(f'Clusterização de Municípios – {nome_base}')
+                ax.legend(); ax.grid(True, linestyle=':')
+                plt.tight_layout()
+                plt.savefig(os.path.join(pasta, f'cluster_plot_{nome_base}.png'), dpi=150)
+                plt.close()
+
+        # Projeção per capita (Brasil)
+        print("   - Projeção per capita...")
+        massa_atual = df['MASSA_COLETADA'].sum()
+        pop_atual = df['POPULACAO_TOTAL'].sum() if 'POPULACAO_TOTAL' in df else 210000000
+        if massa_atual > 0 and pop_atual > 0:
+            taxa_pop = 0.01
+            anos_proj = 10
+            per_capita = massa_atual / pop_atual
+            proj = []
+            pop = pop_atual
+            for i in range(1, anos_proj+1):
+                pop = pop * (1 + taxa_pop)
+                massa = pop * per_capita
+                proj.append({'Ano': datetime.now().year + i, 'Populacao': pop, 'Massa_ton': massa})
+            df_proj = pd.DataFrame(proj)
+            df_proj.to_csv(os.path.join(pasta, f'projecao_percapita_{nome_base}.csv'), index=False)
+
+        # Simulação de cenários (compostagem)
+        print("   - Simulação de cenários...")
+        df_evitado = calcular_evitado_por_municipio(df)
+        if not df_evitado.empty:
+            total_evitado = df_evitado['Evitado_Total'].sum()
+            total_massa_org = df_evitado['Massa_Org_Seletiva'].sum()
+            evitado_por_t = total_evitado / total_massa_org if total_massa_org > 0 else 0.5
+            preco, _ = obter_cotacao_carbono()
+            cambio, _ = obter_cotacao_euro()
+            # Simula 10 anos
+            massa_aterro = df[df['DESTINO'].apply(determinar_mcf_por_destino)>0]['MASSA_COLETADA'].sum()
+            if massa_aterro > 0 and evitado_por_t > 0:
+                resultados_sim = []
+                for ano in range(1, 11):
+                    fator = (1 + 0.15)**(ano-1)
+                    massa_proj = massa_aterro * fator
+                    co2_evitado = massa_proj * evitado_por_t
+                    receita = co2_evitado * preco * cambio
+                    resultados_sim.append({'Ano': datetime.now().year+ano, 'Massa_Desviada_t': massa_proj,
+                                          'Receita_Anual_BRL': receita, 'Receita_Acumulada_BRL': receita if ano==1 else 0})
+                df_sim = pd.DataFrame(resultados_sim)
+                df_sim['Receita_Acumulada_BRL'] = df_sim['Receita_Anual_BRL'].cumsum()
+                df_sim.to_csv(os.path.join(pasta, f'simulacao_receita_{nome_base}.csv'), index=False)
+
+        # Cenários de expansão (cobertura)
+        print("   - Cenários de expansão...")
+        df_total = df.groupby('MUNICÍPIO').agg({'MASSA_COLETADA':'sum', 'UF':'first'}).reset_index()
+        df_total.rename(columns={'MASSA_COLETADA':'Massa_Total'}, inplace=True)
+        mask_org = df['TIPO_COLETA_EXECUTADA'].astype(str).str.contains("seletiva.*orgânico|orgânico.*seletiva", case=False, na=False, regex=True)
+        df_seletiva = df[mask_org].groupby('MUNICÍPIO')['MASSA_COLETADA'].sum().reset_index().rename(columns={'MASSA_COLETADA':'Massa_Seletiva'})
+        df_cobertura = pd.merge(df_total, df_seletiva, on='MUNICÍPIO', how='left').fillna(0)
+        df_cobertura['Pct_Cobertura'] = (df_cobertura['Massa_Seletiva'] / df_cobertura['Massa_Total']) * 100
+        df_cobertura['Possui_Seletiva'] = df_cobertura['Massa_Seletiva'] > 0
+        df_cobertura.to_csv(os.path.join(pasta, f'cobertura_seletiva_{nome_base}.csv'), index=False)
+        # Estatísticas de cobertura
+        cobertura_stats = {
+            'Total_Municipios': len(df_cobertura),
+            'Com_Seletiva': df_cobertura['Possui_Seletiva'].sum(),
+            'Sem_Seletiva': (~df_cobertura['Possui_Seletiva']).sum(),
+            'Massa_Total_Brasil_t': df_cobertura['Massa_Total'].sum(),
+            'Massa_Seletiva_Brasil_t': df_cobertura['Massa_Seletiva'].sum(),
+            'Pct_Nacional': (df_cobertura['Massa_Seletiva'].sum() / df_cobertura['Massa_Total'].sum())*100 if df_cobertura['Massa_Total'].sum()>0 else 0
         }
-    }
-    
-    return cenarios[cenario]
+        pd.DataFrame([cobertura_stats]).to_csv(os.path.join(pasta, f'cobertura_stats_{nome_base}.csv'), index=False)
 
-def criar_graficos_simulacao(massa_anual, cenario):
-    """Cria gráficos para visualização da simulação"""
-    
-    fracoes = calcular_simulacao(massa_anual, cenario)
-    
-    # Criar figura com subplots
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 12))
-    
-    # Configurar formatação brasileira nos gráficos
-    def formatar_br_grafico(x, p):
-        """Função para formatar números nos gráficos no padrão brasileiro"""
-        x = float(x)
-        if abs(x) >= 1_000_000:
-            return formatar_br(x / 1_000_000, 1) + ' mi'
-        elif abs(x) >= 1_000:
-            return formatar_br(x / 1_000, 1) + ' mil'
-        else:
-            return formatar_br(x, 0)
-    
-    # Gráfico 1: Destinação atual vs proposta
-    destinos = ['Aterro', 'Reciclagem', 'Compostagem']
-    valores_atual = [0.85, 0.08, 0.07]
-    valores_cenario = [fracoes['Aterro'], fracoes['Reciclagem'], fracoes['Compostagem']]
-    
-    x = np.arange(len(destinos))
-    width = 0.35
-    
-    ax1.bar(x - width/2, valores_atual, width, label='Cenário Atual', color='#95a5a6')
-    ax1.bar(x + width/2, valores_cenario, width, label=cenario, color=fracoes['cor'])
-    ax1.set_ylabel('Proporção')
-    ax1.set_title('Comparativo de Destinação de Resíduos')
-    ax1.set_xticks(x)
-    ax1.set_xticklabels(destinos)
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
-    
-    # Formatar eixo y como porcentagem
-    ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f'{y:.0%}'))
-    
-    # Gráfico 2: Emissões por cenário
-    cenarios_nomes = ['Atual', 'Econ. Circular', 'Otimizado']
-    emissões = [massa_anual * 0.8, massa_anual * 0.4, massa_anual * 0.2]
-    cores = ['#e74c3c', '#3498db', '#2ecc71']
-    
-    bars = ax2.bar(cenarios_nomes, emissões, color=cores)
-    ax2.set_ylabel('Emissões de CO₂eq (t/ano)')
-    ax2.set_title('Emissões de GEE por Cenário')
-    ax2.grid(True, alpha=0.3)
-    
-    # Formatar eixo y no padrão brasileiro
-    ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: formatar_br(y, 0)))
-    
-    for bar in bars:
-        height = bar.get_height()
-        ax2.text(bar.get_x() + bar.get_width()/2, height,
-                f'{formatar_br(height, 0)}', ha='center', va='bottom', fontweight='bold')
-    
-    # Gráfico 3: Potencial de reciclagem
-    labels = ['Recicláveis Recuperáveis', 'Orgânicos Compostáveis', 'Rejeito']
-    sizes = [fracoes['Reciclagem'] * 100, fracoes['Compostagem'] * 100, fracoes['Aterro'] * 100]
-    colors = ['#3498db', '#2ecc71', '#e74c3c']
-    
-    ax3.pie(sizes, labels=labels, colors=colors, autopct=lambda p: f'{p:.1f}%', startangle=90)
-    ax3.set_title(f'Potencial de Valorização - {cenario}')
-    
-    # Gráfico 4: Valor econômico do carbono
-    if fracoes['Redução vs Atual'] != '0%':
-        reducao_absoluta = (massa_anual * 0.8) - fracoes['Emissões (t CO₂eq)']
-        valor_carbono_usd = reducao_absoluta * 50  # US$ 50/ton
-        valor_carbono_brl = valor_carbono_usd * 5  # R$ 5/US$
-        
-        categorias = ['Redução de GEE', 'Valor (US$)', 'Valor (R$)']
-        valores = [reducao_absoluta, valor_carbono_usd, valor_carbono_brl]
-        unidades = ['t CO₂eq', 'US$/ano', 'R$/ano']
-        
-        bars = ax4.bar(categorias, valores, color=['#2ecc71', '#3498db', '#9b59b6'])
-        ax4.set_title('Valor Econômico do Carbono Evitado')
-        ax4.grid(True, alpha=0.3)
-        
-        # Formatar eixo y no padrão brasileiro
-        ax4.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: formatar_br(y, 0)))
-        
-        for i, (bar, val, unid) in enumerate(zip(bars, valores, unidades)):
-            height = bar.get_height()
-            ax4.text(bar.get_x() + bar.get_width()/2, height,
-                    f'{formatar_br(val, 0)} {unid}', ha='center', va='bottom', fontweight='bold')
-    else:
-        ax4.text(0.5, 0.5, 'Sem redução de emissões\nno cenário atual',
-                ha='center', va='center', transform=ax4.transAxes, fontsize=12)
-        ax4.set_title('Valor do Carbono')
-    
-    plt.tight_layout()
-    return fig
+        # ---------- 7.3 Aba 3: Diagnóstico de Emissões ----------
+        print("🔥 Gerando Diagnóstico de Emissões...")
 
-def main():
-    # Sidebar com configurações
-    with st.sidebar:
-        st.markdown("### SINISA 2023")
-        
-        st.header("⚙️ Configurações")
-        
-        # Seção de municípios
-        st.subheader("🏙️ Seleção de Município")
-        municipios = [
-            "RIBEIRÃO PRETO",
-            "SÃO JOSÉ DO RIO PRETO", 
-            "SERTÃOZINHO",
-            "MANAUS",
-            "ARIQUEMES",
-            "BOCA DO ACRE"
-        ]
-        
-        municipio_selecionado = st.selectbox(
-            "Escolha o município para análise:",
-            municipios
-        )
-        
-        # Campo para buscar outros municípios
-        outro_municipio = st.text_input("Ou digite outro município:")
-        if outro_municipio:
-            municipio_selecionado = outro_municipio.upper()
-        
-        st.markdown("---")
-        
-        # Seção de cenários
-        st.subheader("📈 Cenários de Simulação")
-        cenario = st.radio(
-            "Escolha o cenário para simulação:",
-            ["Cenário Atual", 
-             "Cenário de Economia Circular", 
-             "Cenário Otimizado (Máxima Reciclagem)"]
-        )
-        
-        st.markdown("---")
-        
-        # Opções avançadas
-        st.subheader("🔧 Opções Avançadas")
-        modo_detalhado = st.checkbox("Modo detalhado", value=False)
-        mostrar_dados = st.checkbox("Mostrar dados brutos", value=False)
-        
-        st.markdown("---")
-        
-        # Informações sobre os dados
-        st.info("""
-        **Fonte:** SINISA 2023  
-        **Registros:** 12.822 válidos  
-        **Média nacional:** 365 kg/hab/ano  
-        **Período:** Dados de 2023
-        """)
-    
-    # Carregamento de dados
-    st.header("📥 Carregamento de Dados")
-    
-    with st.spinner("Carregando dados do SINISA 2023..."):
-        df = carregar_dados_completos()
-    
-    if df is None:
-        st.error("Falha ao carregar dados. Verifique a conexão e o arquivo.")
-        return
-    
-    # Identificação de colunas
-    colunas = identificar_colunas_principais(df)
-    
-    # Dashboard de métricas
-    st.header("📊 Dashboard SINISA 2023")
-    
-    # Métricas principais
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Registros Válidos", f"{formatar_br(len(df), 0)}", "Com 'Sim'")
-    
-    with col2:
-        if 'Massa_Total' in colunas:
-            massa_total = df[colunas['Massa_Total']].sum()
-            st.metric("Massa Total Coletada", f"{formatar_br(massa_total, 0)} t", "Nacional")
-    
-    with col3:
-        if 'Estado' in colunas:
-            estados = df[colunas['Estado']].nunique()
-            st.metric("Estados", f"{formatar_br(estados, 0)}", "Com dados")
-    
-    with col4:
-        if 'Região' in colunas:
-            regioes = df[colunas['Região']].nunique()
-            st.metric("Regiões", f"{formatar_br(regioes, 0)}", "Brasil")
-    
-    # Análise do município selecionado
-    st.header(f"🏙️ Análise Municipal: {municipio_selecionado}")
-    
-    if 'Município' in colunas:
-        # Buscar TODAS as linhas do município
-        dados_municipio_completo = buscar_todas_linhas_municipio(df, municipio_selecionado, colunas['Município'])
-        
-        if dados_municipio_completo is not None and len(dados_municipio_completo) > 0:
-            st.success(f"✅ Município encontrado! {formatar_br(len(dados_municipio_completo), 0)} registro(s) no total.")
-            
-            # Layout em colunas para informações
-            col_info1, col_info2 = st.columns(2)
-            
-            with col_info1:
-                st.subheader("📋 Informações Gerais")
-                
-                info_card = st.container()
-                with info_card:
-                    # Município (usar o primeiro registro)
-                    primeiro_registro = dados_municipio_completo.iloc[0]
-                    st.markdown(f"**Município:** {primeiro_registro[colunas['Município']]}")
-                    
-                    # Estado e Região
-                    if 'Estado' in colunas and colunas['Estado'] in primeiro_registro:
-                        st.markdown(f"**Estado:** {primeiro_registro[colunas['Estado']]}")
-                    
-                    if 'Região' in colunas and colunas['Região'] in primeiro_registro:
-                        st.markdown(f"**Região:** {primeiro_registro[colunas['Região']]}")
-                    
-                    # Secretaria/Setor (mantido apenas aqui, não na tabela)
-                    if 'Secretaria' in colunas and colunas['Secretaria'] in primeiro_registro:
-                        secretaria = primeiro_registro[colunas['Secretaria']]
-                        if pd.notna(secretaria):
-                            st.markdown(f"**Secretaria/Setor:** {secretaria}")
-                    
-                    # Tipos de Coleta (mostrar todos)
-                    if 'Tipo_Coleta' in colunas:
-                        tipos_coleta = dados_municipio_completo[colunas['Tipo_Coleta']].dropna().unique()
-                        if len(tipos_coleta) > 0:
-                            st.markdown("**Tipos de Coleta:**")
-                            for tipo in tipos_coleta:
-                                st.markdown(f"- {tipo}")
-                    
-                    # DESTINOS FINAIS - CORRIGIDO: USAR COLUNA AD (Destino_Texto)
-                    if 'Destino_Texto' in colunas and colunas['Destino_Texto'] in dados_municipio_completo.columns:
-                        destinos = dados_municipio_completo[colunas['Destino_Texto']].dropna()
-                        
-                        if len(destinos) > 0:
-                            st.markdown("**Destinos Finais:**")
-                            
-                            # Contar ocorrências EXATAS
-                            contador_destinos = Counter(destinos.astype(str))
-                            
-                            # Mostrar cada destino com contagem
-                            for destino_texto, count in contador_destinos.items():
-                                if pd.isna(destino_texto) or destino_texto == "nan":
-                                    continue
-                                
-                                destino_limpo = str(destino_texto).strip()
-                                if count > 1:
-                                    st.markdown(f"- **{destino_limpo}** (aparece {formatar_br(count, 0)} vezes)")
-                                else:
-                                    st.markdown(f"- **{destino_limpo}**")
-                        else:
-                            st.markdown("*Destinos não informados*")
-                    else:
-                        st.markdown("*Coluna de destinos não identificada*")
-            
-            with col_info2:
-                st.subheader("📊 Dados Quantitativos")
-                
-                if 'Massa_Total' in colunas:
-                    # Soma a massa total de todas as linhas do município
-                    massa_total_municipio = dados_municipio_completo[colunas['Massa_Total']].sum()
-                    
-                    if pd.notna(massa_total_municipio) and massa_total_municipio > 0:
-                        # Obter população REAL da coluna J (primeiro valor não nulo)
-                        populacao_real = None
-                        if 'População' in colunas and colunas['População'] in dados_municipio_completo.columns:
-                            # Filtrar valores não nulos e pegar o primeiro
-                            valores_populacao = dados_municipio_completo[colunas['População']].dropna().unique()
-                            if len(valores_populacao) > 0:
-                                populacao_real = float(valores_populacao[0])
-                        
-                        # Exibição de métricas com formatação brasileira
-                        st.metric("Massa Coletada Anual Total", f"{formatar_br(massa_total_municipio, 1)} t")
-                        
-                        if populacao_real and populacao_real > 0:
-                            # Usar população REAL
-                            st.metric("População Municipal", f"{formatar_br(populacao_real, 0)} hab", "Dados SINISA 2023")
-                            
-                            # Calcular geração per capita REAL
-                            geracao_per_capita = (massa_total_municipio * 1000) / populacao_real
-                            st.metric("Geração Per Capita", f"{formatar_br(geracao_per_capita, 1)} kg/hab/ano", 
-                                     f"Média nacional: {formatar_br(365.21, 1)} kg/hab/ano")
-                        else:
-                            # Se não tiver população, mostrar estimativa
-                            populacao_estimada = (massa_total_municipio * 1000) / 365.21
-                            st.metric("População Estimada", f"{formatar_br(populacao_estimada, 0)} hab", "Baseado na média nacional")
-                            st.metric("Geração Per Capita", f"{formatar_br(365.21, 1)} kg/hab/ano", "Média nacional (estimativa)")
-                        
-                        # Detalhamento por tipo de coleta
-                        st.markdown("**Detalhamento por Tipo de Coleta:**")
-                        if 'Tipo_Coleta' in colunas:
-                            detalhes_coleta = dados_municipio_completo.groupby(colunas['Tipo_Coleta']).agg(
-                                Massa_Total=(colunas['Massa_Total'], 'sum'),
-                                Contagem=(colunas['Massa_Total'], 'count')
-                            ).reset_index()
-                            
-                            for _, row in detalhes_coleta.iterrows():
-                                st.markdown(f"- {row[colunas['Tipo_Coleta']]}: {formatar_br(row['Massa_Total'], 1)} t")
-                        
-                        # Simulação de cenários
-                        st.subheader("🔮 Simulação de Cenários")
-                        
-                        # Criar gráficos
-                        fig = criar_graficos_simulacao(massa_total_municipio, cenario)
-                        st.pyplot(fig)
-                        
-                        # Detalhes da simulação
-                        fracoes = calcular_simulacao(massa_total_municipio, cenario)
-                        
-                        col_res1, col_res2, col_res3 = st.columns(3)
-                        
-                        with col_res1:
-                            materiais_reciclaveis = massa_total_municipio * fracoes['Reciclagem']
-                            st.metric("Materiais Recicláveis", 
-                                    f"{formatar_br(materiais_reciclaveis, 0)} t/ano")
-                        
-                        with col_res2:
-                            compostagem = massa_total_municipio * fracoes['Compostagem']
-                            st.metric("Compostagem", 
-                                    f"{formatar_br(compostagem, 0)} t/ano")
-                        
-                        with col_res3:
-                            st.metric("Emissões de GEE", 
-                                    f"{formatar_br(fracoes['Emissões (t CO₂eq)'], 0)} t CO₂eq/ano")
-                        
-                        # Valor econômico se houver redução
-                        if fracoes['Redução vs Atual'] != '0%':
-                            st.success(f"**Redução de emissões:** {fracoes['Redução vs Atual']}")
-                    else:
-                        st.warning("Dados de massa não disponíveis ou zerados para este município.")
-                else:
-                    st.error("Coluna de massa não identificada.")
-            
-            # DEBUG: Verificar mapeamento
-            if modo_detalhado:
-                with st.expander("🔍 Debug - Verificar Mapeamento de Colunas"):
-                    st.write("Colunas mapeadas:")
-                    for tipo, col in colunas.items():
-                        st.write(f"**{tipo}**: {col}")
-                    
-                    if len(dados_municipio_completo) > 0:
-                        st.write("\n**Primeiro registro completo:**")
-                        primeiro_registro = dados_municipio_completo.iloc[0]
-                        
-                        # Mostrar apenas as colunas mapeadas
-                        for tipo, col in colunas.items():
-                            if col in primeiro_registro:
-                                st.write(f"**{tipo} ({col})**: {primeiro_registro[col]}")
-            
-            # TABELA DE RELAÇÃO ENTRE TIPO DE COLETA, DESTINO E AGENTE EXECUTOR - SEM SECRETARIA
-            st.subheader("📋 Relação: Tipo de Coleta → Destino Final → Agente Executor")
-            
-            # Criar tabela simplificada SEM Secretaria
-            tabela_relacao = []
-            
-            for i, linha in dados_municipio_completo.iterrows():
-                # Coletar informações CORRETAS
-                tipo_coleta = linha[colunas['Tipo_Coleta']] if 'Tipo_Coleta' in colunas and colunas['Tipo_Coleta'] in linha else "Não informado"
-                destino = linha[colunas['Destino_Texto']] if 'Destino_Texto' in colunas and colunas['Destino_Texto'] in linha else "Não informado"
-                agente = linha[colunas['Agente_Executor']] if 'Agente_Executor' in colunas and colunas['Agente_Executor'] in linha else "Não informado"
-                massa = linha[colunas['Massa_Total']] if 'Massa_Total' in colunas and colunas['Massa_Total'] in linha else 0
-                
-                # Limpar textos
-                tipo_coleta = str(tipo_coleta).strip() if pd.notna(tipo_coleta) else "Não informado"
-                destino = str(destino).strip() if pd.notna(destino) else "Não informado"
-                agente = str(agente).strip() if pd.notna(agente) else "Não informado"
-                
-                tabela_relacao.append({
-                    'Tipo de Coleta': tipo_coleta,
-                    'Destino Final': destino,
-                    'Agente Executor': agente,
-                    'Massa (t)': formatar_br(massa, 1) if pd.notna(massa) else "0,0"
+        # Emissões por município
+        emissoes = []
+        for mun in df['MUNICÍPIO'].unique():
+            df_mun = df[df['MUNICÍPIO']==mun].copy()
+            doc, docf, k = calcular_doc_k_ponderado(df_mun)
+            df_mun['MCF'] = df_mun['DESTINO'].apply(determinar_mcf_por_destino)
+            df_aterro = df_mun[(df_mun['MCF']>0) & (df_mun['MASSA_COLETADA']>0)].copy()
+            if df_aterro.empty:
+                continue
+            massa = df_aterro['MASSA_COLETADA'].sum()
+            mcf_medio = (df_aterro['MASSA_COLETADA'] * df_aterro['MCF']).sum() / massa
+            co2_20 = calcular_co2eq_aterro_20anos(massa, mcf_medio, k, doc, docf)
+            emissao_anual = co2_20 / 20.0
+            pop = df_mun['POPULACAO_TOTAL'].iloc[0] if 'POPULACAO_TOTAL' in df_mun else 0
+            pop = pop if pd.notna(pop) and pop>0 else 0
+            intensidade = emissao_anual / massa if massa>0 else 0
+            per_capita = (emissao_anual * 1000) / pop if pop>0 else 0
+            uf = df_mun['UF'].iloc[0] if 'UF' in df_mun else 'N/A'
+            emissoes.append({
+                'MUNICÍPIO': mun, 'UF': uf,
+                'Massa_Aterro_t': massa,
+                'MCF_Medio': mcf_medio,
+                'DOC_Medio': doc, 'DOCF_Medio': docf, 'k_Medio': k,
+                'Emissao_Media_Anual_tCO2e': emissao_anual,
+                'Intensidade_tCO2e_por_t': intensidade,
+                'Emissao_per_capita_kgCO2e': per_capita
+            })
+        df_emissoes = pd.DataFrame(emissoes)
+        df_emissoes.to_csv(os.path.join(pasta, f'emissoes_municipios_{nome_base}.csv'), index=False)
+
+        if not df_emissoes.empty:
+            # Limiares SBCE (estático)
+            acima_10k = df_emissoes[df_emissoes['Emissao_Media_Anual_tCO2e'] > 10000]
+            acima_25k = df_emissoes[df_emissoes['Emissao_Media_Anual_tCO2e'] > 25000]
+            limiares = pd.DataFrame({
+                'Cenario': ['Estatico_1_deposito'],
+                'Acima_10k': [len(acima_10k)],
+                'Acima_25k': [len(acima_25k)]
+            })
+
+            # Projeção contínua (Brasil)
+            massa_total_br = df_emissoes['Massa_Aterro_t'].sum()
+            if massa_total_br > 0:
+                mcf_br = (df_emissoes['Massa_Aterro_t'] * df_emissoes['MCF_Medio']).sum() / massa_total_br
+                doc_br = (df_emissoes['Massa_Aterro_t'] * df_emissoes['DOC_Medio']).sum() / massa_total_br
+                docf_br = (df_emissoes['Massa_Aterro_t'] * df_emissoes['DOCF_Medio']).sum() / massa_total_br
+                k_br = (df_emissoes['Massa_Aterro_t'] * df_emissoes['k_Medio']).sum() / massa_total_br
+                df_cont = projetar_emissao_continua(massa_total_br, mcf_br, k_br, doc_br, docf_br)
+                df_cont.to_csv(os.path.join(pasta, f'projecao_continua_20anos_{nome_base}.csv'), index=False)
+
+                # Limiares contínuos (ano 20)
+                df_cont_ano20 = df_emissoes.copy()
+                def calc_cont_ano20(row):
+                    return projetar_emissao_continua(row['Massa_Aterro_t'], row['MCF_Medio'],
+                                                     row['k_Medio'], row['DOC_Medio'], row['DOCF_Medio']).iloc[-1]['Emissao_Anual'] if row['Massa_Aterro_t']>0 else 0
+                df_cont_ano20['Emissao_Continua_Ano20'] = df_cont_ano20.apply(calc_cont_ano20, axis=1)
+                acima_10k_cont = df_cont_ano20[df_cont_ano20['Emissao_Continua_Ano20'] > 10000]
+                acima_25k_cont = df_cont_ano20[df_cont_ano20['Emissao_Continua_Ano20'] > 25000]
+                limiares_cont = pd.DataFrame({
+                    'Cenario': ['Continuo_20_anos'],
+                    'Acima_10k': [len(acima_10k_cont)],
+                    'Acima_25k': [len(acima_25k_cont)]
                 })
-            
-            # Criar DataFrame
-            df_relacao = pd.DataFrame(tabela_relacao)
-            
-            # Mostrar tabela
-            if len(df_relacao) > 0:
-                st.dataframe(df_relacao, use_container_width=True, height=300)
-            else:
-                st.info("Não foi possível criar a tabela de relação.")
-            
-            # Mostrar tabela detalhada original se houver múltiplos registros
-            if len(dados_municipio_completo) > 1:
-                with st.expander("📋 Ver todos os registros do município (detalhado)"):
-                    # Selecionar colunas importantes para mostrar - GARANTINDO COLUNAS ÚNICAS
-                    colunas_para_mostrar = []
-                    colunas_ja_adicionadas = set()
-                    
-                    for tipo, col in colunas.items():
-                        if col in dados_municipio_completo.columns and col not in colunas_ja_adicionadas:
-                            colunas_para_mostrar.append(col)
-                            colunas_ja_adicionadas.add(col)
-                    
-                    # Adicionar índice
-                    dados_display = dados_municipio_completo[colunas_para_mostrar].copy()
-                    dados_display.insert(0, 'Nº', range(1, len(dados_display) + 1))
-                    
-                    # Formatar colunas numéricas no padrão brasileiro
-                    for col in dados_display.columns:
-                        if col == 'Nº':  # Pular a coluna de índice
-                            continue
-                        
-                        # Verificar se a coluna existe
-                        if col not in dados_display.columns:
-                            continue
-                        
-                        # Verificar de forma segura se é numérica
-                        try:
-                            # Primeiro, tentar verificar se podemos converter para numérico
-                            col_data = dados_display[col]
-                            
-                            # Tentar detectar se é numérica
-                            is_numeric = False
-                            
-                            # Método 1: Verificar dtype
-                            if hasattr(col_data, 'dtype'):
-                                dtype_str = str(col_data.dtype)
-                                if any(num_type in dtype_str for num_type in ['int', 'float', 'Int', 'Float']):
-                                    is_numeric = True
-                            
-                            # Método 2: Tentar converter amostra
-                            if not is_numeric:
-                                try:
-                                    sample = col_data.dropna().iloc[0] if len(col_data.dropna()) > 0 else None
-                                    if sample is not None:
-                                        float(sample)
-                                        is_numeric = True
-                                except:
-                                    is_numeric = False
-                            
-                            if is_numeric:
-                                # Verificar se é uma coluna de população ou massa para formatação apropriada
-                                col_name = str(col).lower()
-                                if 'população' in col_name or 'populacao' in col_name or 'pop' in col_name:
-                                    dados_display[col] = dados_display[col].apply(lambda x: formatar_br(x, 0) if pd.notna(x) else x)
-                                elif 'massa' in col_name or 'toneladas' in col_name:
-                                    dados_display[col] = dados_display[col].apply(lambda x: formatar_br(x, 1) if pd.notna(x) else x)
-                                else:
-                                    # Para outras colunas numéricas, usar 0 casas decimais
-                                    dados_display[col] = dados_display[col].apply(lambda x: formatar_br(x, 0) if pd.notna(x) else x)
-                        except Exception as e:
-                            # Se houver erro, manter a coluna como está
-                            if modo_detalhado:
-                                st.write(f"Erro ao formatar coluna {col}: {str(e)}")
-                    
-                    st.dataframe(dados_display, use_container_width=True)
-            
-        else:
-            st.warning(f"Município '{municipio_selecionado}' não encontrado nos dados.")
-            
-            # Sugestões de busca
-            st.info("""
-            **Possíveis razões:**
-            1. Município não preencheu o formulário SINISA 2023
-            2. Nome do município pode estar escrito de forma diferente
-            3. Município pode estar na lista de 'Não respondentes'
-            
-            **Sugestões:**
-            - Verificar a grafia do nome
-            - Tentar buscar sem acentos
-            - Testar outros municípios da lista
-            """)
-    else:
-        st.error("Não foi possível identificar a coluna de municípios.")
-        
-        if modo_detalhado:
-            with st.expander("🔍 Debug - Estrutura de Colunas"):
-                st.write("Colunas disponíveis:")
-                for i, col in enumerate(df.columns):
-                    st.write(f"{i}: {col}")
-                st.write("Primeiras linhas do DataFrame:")
-                st.write(df.head())
-    
-    # Análise comparativa por estado
-    if 'Estado' in colunas and 'Massa_Total' in colunas:
-        st.header("📈 Análise Comparativa por Estado")
-        
-        # Preparar dados
-        dados_estado = df.groupby(colunas['Estado']).agg(
-            Municipios=(colunas['Massa_Total'], 'count'),
-            Massa_Total=(colunas['Massa_Total'], 'sum'),
-            Massa_Media=(colunas['Massa_Total'], 'mean')
-        ).reset_index()
-        
-        # Renomear a coluna para facilitar
-        dados_estado = dados_estado.rename(columns={colunas['Estado']: 'Estado'})
-        dados_estado = dados_estado.sort_values('Massa_Total', ascending=False)
-        
-        # Layout para gráfico e tabela
-        col_graf, col_tab = st.columns([2, 1])
-        
-        with col_graf:
-            st.subheader("🏆 Top 10 Estados")
-            
-            fig, ax = plt.subplots(figsize=(10, 6))
-            top_10 = dados_estado.head(10)
-            
-            bars = ax.barh(top_10['Estado'], top_10['Massa_Total'], color='#3498db')
-            ax.set_xlabel('Massa Total Coletada (toneladas)')
-            ax.set_title('Top 10 Estados por Massa de Resíduos Coletados')
-            ax.invert_yaxis()
-            ax.grid(axis='x', alpha=0.3)
-            
-            # Formatar eixo x no padrão brasileiro
-            ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: formatar_br(x, 0)))
-            
-            # Adicionar valores formatados no padrão brasileiro
-            for bar in bars:
-                width = bar.get_width()
-                ax.text(width, bar.get_y() + bar.get_height()/2,
-                       f'{formatar_br(width, 0)}', ha='left', va='center', fontsize=9)
-            
-            st.pyplot(fig)
-        
-        with col_tab:
-            st.subheader("📋 Ranking Completo")
-            
-            # Tabela simplificada
-            tabela_resumo = dados_estado[['Estado', 'Massa_Total', 'Municipios']].copy()
-            tabela_resumo.columns = ['Estado', 'Massa (t)', 'Municípios']
-            tabela_resumo['Massa (t)'] = tabela_resumo['Massa (t)'].round(0)
-            
-            # Formatar a coluna de massa no padrão brasileiro
-            tabela_resumo['Massa (t)'] = tabela_resumo['Massa (t)'].apply(lambda x: formatar_br(x, 0))
-            tabela_resumo['Municípios'] = tabela_resumo['Municípios'].apply(lambda x: formatar_br(x, 0))
-            
-            st.dataframe(tabela_resumo.head(15), height=400, use_container_width=True)
-    
-    # Dados brutos (se solicitado)
-    if mostrar_dados and 'Massa_Total' in colunas:
-        with st.expander("📄 Dados Brutos (Amostra)"):
-            # Mostrar apenas colunas importantes - GARANTINDO COLUNAS ÚNICAS
-            colunas_para_mostrar = []
-            colunas_ja_adicionadas = set()
-            
-            for tipo, col in colunas.items():
-                if col in df.columns and col not in colunas_ja_adicionadas:
-                    colunas_para_mostrar.append(col)
-                    colunas_ja_adicionadas.add(col)
-            
-            if colunas_para_mostrar:
-                dados_amostra = df[colunas_para_mostrar].head(20).copy()
-                
-                # Formatar colunas numéricas no padrão brasileiro
-                for col in dados_amostra.columns:
-                    try:
-                        # Verificar se é numérica
-                        col_data = dados_amostra[col]
-                        if hasattr(col_data, 'dtype'):
-                            dtype_str = str(col_data.dtype)
-                            if any(num_type in dtype_str for num_type in ['int', 'float', 'Int', 'Float']):
-                                col_name = str(col).lower()
-                                if 'população' in col_name or 'populacao' in col_name or 'pop' in col_name:
-                                    dados_amostra[col] = dados_amostra[col].apply(lambda x: formatar_br(x, 0) if pd.notna(x) else x)
-                                elif 'massa' in col_name or 'toneladas' in col_name:
-                                    dados_amostra[col] = dados_amostra[col].apply(lambda x: formatar_br(x, 1) if pd.notna(x) else x)
-                                else:
-                                    dados_amostra[col] = dados_amostra[col].apply(lambda x: formatar_br(x, 0) if pd.notna(x) else x)
-                    except:
-                        # Se houver erro, manter como está
-                        pass
-                
-                st.dataframe(dados_amostra, use_container_width=True)
-    
-    # Seção de informações técnicas
-    with st.expander("📚 Informações Técnicas e Metodologia"):
-        st.markdown(f"""
-        ## 📊 Fonte dos Dados
-        
-        **Sistema Nacional de Informações sobre Saneamento (SINISA) 2023**
-        
-        ## ⚙️ Metodologia de Análise
-        
-        **Filtro aplicado:**
-        - Apenas registros com valor 'Sim' na primeira coluna (Coluna A)
-        - Total de {formatar_br(12822, 0)} registros válidos (94,1% do total)
-        
-        **Colunas principais utilizadas:**
-        - Estado: Coluna D (Col_3)
-        - Região: Coluna E (Col_4)
-        - População: Coluna J (Col_9) - População municipal
-        - Tipo de Coleta: Coluna Q (Col_16) - "Tipo de coleta executada"
-        - Massa Total: Coluna Y (Col_24) - "Massa de resíduos sólidos total coletada para a rota cadastrada"
-        - Destino (Texto): Coluna AD (Col_28) - "Tipo de unidade de destino" (ex: Aterro controlado)
-        - Agente Executor: Coluna AE (Col_29) - "Tipo de executor do serviço de destino dos resíduos" (ex: Agente privado)
-        
-        **Cálculo per capita:**
-        - Quando disponível: usa população real da coluna J
-        - Fórmula: (Massa Total em kg) / População = kg/hab/ano
-        - 1 tonelada = 1.000 kg
-        - Se população não disponível: usa média nacional de {formatar_br(365.21, 1)} kg/hab/ano para estimativa
-        
-        ## 🧮 Simulação de Cenários
-        
-        **Cenário Atual:**
-        - Baseado em médias brasileiras atuais
-        - Aterro: 85%, Reciclagem: 8%, Compostagem: 7%
-        
-        **Cenário Economia Circular:**
-        - Aumento significativo de reciclagem e compostagem
-        - Aterro: 40%, Reciclagem: 35%, Compostagem: 25%
-        
-        **Cenário Otimizado:**
-        - Máxima recuperação de materiais
-        - Aterro: 20%, Reciclagem: 45%, Compostagem: 35%
-        
-        ## 📈 Fatores de Emissão
-        
-        - Baseados em metodologias IPCC para resíduos sólidos
-        - Consideram diferentes tipos de destinação final
-        - Valor do carbono: US$ 50 por tonelada de CO₂eq
-        
-        ## 🎯 Limitações
-        
-        1. Dados auto-declarados pelos municípios
-        2. Variações na qualidade do preenchimento
-        3. Para municípios sem dados de população, usa estimativa baseada na média nacional
-        4. Fatores de emissão médios, não específicos por tecnologia
-        """)
-    
-    # Rodapé
-    st.markdown("---")
-    st.markdown("""
-    <div style='text-align: center'>
-        <p>Desenvolvido para análise de dados SINISA 2023 | Dados: Sistema Nacional de Informações sobre Saneamento</p>
-        <p>Última atualização: Janeiro 2026 | Versão 3.2</p>
-    </div>
-    """, unsafe_allow_html=True)
+                limiares = pd.concat([limiares, limiares_cont], ignore_index=True)
+                df_cont_ano20[['MUNICÍPIO','UF','Emissao_Continua_Ano20','Massa_Aterro_t']].to_csv(
+                    os.path.join(pasta, f'limiares_continuos_detalhado_{nome_base}.csv'), index=False)
+            limiares.to_csv(os.path.join(pasta, f'limiares_sbce_{nome_base}.csv'), index=False)
 
-if __name__ == "__main__":
-    main()
+            # Pareto das emissões
+            df_ord_emis = df_emissoes.sort_values('Emissao_Media_Anual_tCO2e', ascending=False)
+            df_ord_emis['pct_acum'] = df_ord_emis['Emissao_Media_Anual_tCO2e'].cumsum() / df_ord_emis['Emissao_Media_Anual_tCO2e'].sum() * 100
+            df_ord_emis['pct_mun'] = (np.arange(len(df_ord_emis))+1) / len(df_ord_emis) * 100
+            fig, ax = plt.subplots(figsize=(10,6))
+            ax.plot(df_ord_emis['pct_mun'], df_ord_emis['pct_acum'], color='#d62728', linewidth=2)
+            ax.axhline(80, color='red', linestyle='--')
+            ax.set_xlabel('% acumulado de municípios'); ax.set_ylabel('% acumulado das emissões')
+            ax.set_title(f'Concentração das Emissões de Metano – {nome_base}')
+            ax.grid(True, linestyle=':')
+            plt.tight_layout()
+            plt.savefig(os.path.join(pasta, f'pareto_emissoes_{nome_base}.png'), dpi=150)
+            plt.close()
+
+            # Top 20 emissores
+            top20 = df_emissoes.nlargest(20, 'Emissao_Media_Anual_tCO2e')[['MUNICÍPIO','UF','Emissao_Media_Anual_tCO2e','Intensidade_tCO2e_por_t']]
+            top20.to_csv(os.path.join(pasta, f'top20_emissores_{nome_base}.csv'), index=False)
+
+            # Matriz de decisão (Massa x Intensidade)
+            fig, ax = plt.subplots(figsize=(10,8))
+            med_massa = df_emissoes['Massa_Aterro_t'].median()
+            med_int = df_emissoes['Intensidade_tCO2e_por_t'].median()
+            cores = {'Crítico':'red', 'Ineficiente':'orange', 'Referência':'green', 'Baixa Prioridade':'blue'}
+            for _, row in df_emissoes.iterrows():
+                if row['Massa_Aterro_t'] >= med_massa and row['Intensidade_tCO2e_por_t'] >= med_int:
+                    cat = 'Crítico'
+                elif row['Massa_Aterro_t'] < med_massa and row['Intensidade_tCO2e_por_t'] >= med_int:
+                    cat = 'Ineficiente'
+                elif row['Massa_Aterro_t'] >= med_massa and row['Intensidade_tCO2e_por_t'] < med_int:
+                    cat = 'Referência'
+                else:
+                    cat = 'Baixa Prioridade'
+                ax.scatter(row['Massa_Aterro_t'], row['Intensidade_tCO2e_por_t'], color=cores[cat], alpha=0.6, s=30, label=cat if cat not in [l.get_text() for l in ax.get_legend_handles_labels()[1]] else "")
+            ax.axvline(med_massa, color='gray', linestyle='--', alpha=0.5)
+            ax.axhline(med_int, color='gray', linestyle='--', alpha=0.5)
+            ax.set_xlabel('Massa em Aterro (t/ano)'); ax.set_ylabel('Intensidade (tCO₂e/t)')
+            ax.set_title(f'Matriz de Decisão – {nome_base}')
+            ax.legend()
+            ax.grid(True, linestyle=':')
+            plt.tight_layout()
+            plt.savefig(os.path.join(pasta, f'matriz_decisao_{nome_base}.png'), dpi=150)
+            plt.close()
+
+        print(f"✅ PROCESSAMENTO CONCLUÍDO para {nome_base}")
+        print(f"📁 Arquivos gerados em: {pasta}")
+
+    except Exception as e:
+        print(f"❌ ERRO FATAL em {nome_base}: {e}")
+        import traceback
+        traceback.print_exc()
+
+# =====================================================================
+# 8. RESUMO CONSOLIDADO
+# =====================================================================
+print("\n" + "="*60)
+print("📋 RESUMO CONSOLIDADO - TODOS OS ANOS PROCESSADOS")
+print("="*60)
+
+csv_files = glob.glob(os.path.join(pasta, '*.csv'))
+if csv_files:
+    print(f"\nTotal de arquivos CSV gerados: {len(csv_files)}")
+    # Lista os arquivos agrupados
+    for f in sorted(csv_files):
+        print(f"  - {os.path.basename(f)}")
+    print("\n✅ Todos os resultados estão disponíveis na pasta /content/")
+    print("📥 Clique no ícone de pasta à esquerda para baixar os arquivos.")
+else:
+    print("Nenhum arquivo CSV foi gerado.")
+
+print("\n🏁 FIM DO PROCESSAMENTO")
