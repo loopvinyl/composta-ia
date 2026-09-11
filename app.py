@@ -1188,6 +1188,21 @@ with tab_tradicional:
 # =========================================================
 with tab_ia:
     st.header("🧠 Insights com Inteligência Artificial")
+
+    # >>> ADIÇÃO: checkbox "Ocultar transbordos" no topo desta aba <<<
+    ocultar_transbordo_ia = st.checkbox(
+        "Ocultar transbordos (nesta aba)",
+        value=False,
+        key="ocultar_transbordo_ia",
+        help="Exclui rotas cujo destino é 'Transbordo' em todas as análises desta aba."
+    )
+    if ocultar_transbordo_ia:
+        df_clean_ia = df_clean[~df_clean[COL_DESTINO].apply(
+            lambda x: "TRANSBORDO" in normalizar_texto(x) if pd.notna(x) else False
+        )].copy()
+    else:
+        df_clean_ia = df_clean.copy()
+
     st.markdown("""
     Aqui você pode explorar análises avançadas utilizando técnicas de Inteligência Artificial:
     - **Classificação de destinos** com Processamento de Linguagem Natural (PLN)
@@ -1208,7 +1223,7 @@ with tab_ia:
     - 🔍 Exibir o nível de confiança de cada classificação
     - 🛡️ Recair para regras manuais quando a confiança é baixa (fallback seguro)
     """)
-    amostras = df_clean[COL_DESTINO].dropna().sample(min(20, len(df_clean))).tolist()
+    amostras = df_clean_ia[COL_DESTINO].dropna().sample(min(20, len(df_clean_ia))).tolist()
     dados_comparacao = []
     for texto in amostras:
         classe_regra = classificar_destino_regra(texto)
@@ -1233,4 +1248,1296 @@ with tab_ia:
     @st.cache_data
     def classificar_todos_destinos(df, col_destino):
         return df[col_destino].apply(lambda x: classificador_ia.prever(x, threshold=0.3))
-    with st.s
+    with st.spinner("🤖 Classificando todos os destinos com IA..."):
+        df_clean_ia['destino_ia'] = classificar_todos_destinos(df_clean_ia, COL_DESTINO)
+    contagem_ia = df_clean_ia['destino_ia'].value_counts().reset_index()
+    contagem_ia.columns = ['Destino (IA)', 'Quantidade']
+    fig1, ax1 = plt.subplots(figsize=(10, 8))
+    cores = plt.cm.Set3(np.linspace(0, 1, len(contagem_ia)))
+    wedges, texts, autotexts = ax1.pie(
+        contagem_ia['Quantidade'],
+        labels=None,
+        autopct=lambda p: f'{p:.1f}%' if p > 1 else '',
+        startangle=90,
+        colors=cores,
+        textprops={'fontsize': 9},
+        pctdistance=0.7,
+    )
+    ax1.legend(wedges, contagem_ia['Destino (IA)'],
+               title="Destino",
+               loc="center left",
+               bbox_to_anchor=(1, 0, 0.5, 1),
+               fontsize=9)
+    ax1.axis('equal')
+    plt.tight_layout()
+    st.pyplot(fig1)
+    plt.close(fig1)
+    st.dataframe(
+        contagem_ia.style.format({
+            "Quantidade": lambda x: formatar_numero_br(x, 0)
+        }),
+        use_container_width=True
+    )
+
+    # --- Clusterização ---
+    st.markdown("---")
+    st.subheader("📈 Clusterização de Municípios por Perfil de Resíduos")
+    st.markdown("""
+    Agrupamos municípios com perfis semelhantes de geração e destinação de resíduos usando **K-Means**.
+    Isso ajuda a identificar quais municípios são prioritários para políticas de compostagem.
+    """)
+    if st.button("🔍 Executar Clusterização"):
+        with st.spinner("Agrupando municípios por similaridade..."):
+            try:
+                from utils.ia_clustering import (
+                    preparar_dados_clusterizacao,
+                    clusterizar_municipios,
+                    aplicar_pca,
+                    plot_clusters,
+                    resumo_clusters,
+                    descrever_clusters
+                )
+                X, df_cluster = preparar_dados_clusterizacao(df_clean_ia)
+                if X.empty:
+                    st.warning("Dados insuficientes para clusterização.")
+                else:
+                    n_clusters = st.slider("Número de clusters:", 2, 6, 4)
+                    labels, kmeans, scaler = clusterizar_municipios(X, n_clusters=n_clusters)
+                    df_cluster['Cluster'] = labels
+                    X_pca, pca = aplicar_pca(X)
+                    fig = plot_clusters(X_pca, labels, df_cluster)
+                    st.pyplot(fig)
+                    st.subheader("📊 Resumo dos Clusters")
+                    resumo = resumo_clusters(df_cluster, labels)
+                    st.dataframe(resumo.style.format({
+                        'Massa_Media': '{:.0f}',
+                        'Massa_Mediana': '{:.0f}',
+                        'Massa_Total_Cluster': '{:.0f}',
+                        'Rotas_Media': '{:.1f}',
+                        'Pct_Aterro_Media': '{:.1f}',
+                        'Pct_Compostagem_Media': '{:.1f}'
+                    }))
+                    st.subheader("📝 Perfil de cada Cluster")
+                    descricoes = descrever_clusters(df_cluster, labels)
+                    for cluster in sorted(descricoes.keys()):
+                        with st.expander(f"Cluster {cluster+1} – Clique para ver detalhes"):
+                            st.markdown(descricoes[cluster])
+                    st.subheader("📍 Municípios por Cluster")
+                    for cluster in sorted(df_cluster['Cluster'].unique()):
+                        with st.expander(f"Cluster {cluster+1}"):
+                            municipios_cluster = df_cluster[df_cluster['Cluster'] == cluster][['MUNICÍPIO', 'UF', 'Massa_Total']]
+                            municipios_cluster = municipios_cluster.sort_values('Massa_Total', ascending=False)
+                            st.dataframe(municipios_cluster.style.format({
+                                'Massa_Total': '{:.0f}'
+                            }), use_container_width=True)
+            except Exception as e:
+                st.error(f"Erro na clusterização: {e}")
+                st.info("ℹ️ Verifique se o arquivo `utils/ia_clustering.py` está atualizado.")
+
+    # --- Previsão per capita ---
+    st.markdown("---")
+    st.subheader("📈 Previsão de Geração de Resíduos por Habitante")
+    st.markdown("""
+    Projeta a quantidade de resíduos que o município (ou o Brasil inteiro) precisará gerenciar
+    com base no crescimento populacional. A geração per capita é mantida constante a partir dos dados atuais do SINISA.
+    """)
+    opcoes_proj = ["BRASIL – Todos os municípios"] + sorted(df_clean_ia[COL_MUNICIPIO].unique())
+    municipio_proj = st.selectbox(
+        "Selecione o município (ou Brasil) para projeção:",
+        opcoes_proj,
+        key="proj_municipio"
+    )
+    if municipio_proj:
+        # =========================================================
+        # A POPULAÇÃO É OBTIDA DIRETAMENTE DA COLUNA J DO SINISA
+        # - Brasil: soma das populações de todos os municípios únicos
+        # - Município: valor real do SINISA
+        # (o st.number_input continua disponível apenas para ajuste manual opcional)
+        # =========================================================
+        if municipio_proj == "BRASIL – Todos os municípios":
+            df_mun_proj = df_clean_ia.copy()
+            massa_atual = df_mun_proj['MASSA_COLETADA'].sum()
+
+            # SOMA DAS POPULAÇÕES DE TODOS OS MUNICÍPIOS ÚNICOS (coluna J do SINISA)
+            pop_calculada = (
+                df_mun_proj
+                .drop_duplicates(subset=[COL_MUNICIPIO])
+                .loc[lambda d: d['POPULACAO_TOTAL'] > 0, 'POPULACAO_TOTAL']
+                .sum()
+            )
+            if pop_calculada <= 0:
+                pop_calculada = 210000000  # fallback apenas se a coluna J vier zerada
+
+            st.info(f"📌 População total do Brasil (soma da coluna J do SINISA): **{formatar_br(pop_calculada, auto_precision=False, casas_override=0)} habitantes**")
+            pop_atual = st.number_input(
+                "População total do Brasil (habitantes) – ajuste opcional:",
+                min_value=1000,
+                value=int(pop_calculada),
+                step=1000000,
+                key="pop_brasil_proj"
+            )
+            titulo_proj = "Brasil"
+        else:
+            df_mun_proj = df_clean_ia[df_clean_ia[COL_MUNICIPIO] == municipio_proj]
+            massa_atual = df_mun_proj['MASSA_COLETADA'].sum()
+
+            # POPULAÇÃO REAL DO MUNICÍPIO (coluna J do SINISA)
+            pop_serie = (
+                df_mun_proj
+                .drop_duplicates(subset=[COL_MUNICIPIO])['POPULACAO_TOTAL']
+            )
+            pop_calculada = float(pop_serie.iloc[0]) if (not pop_serie.empty and pop_serie.iloc[0] > 0) else 50000
+
+            st.info(f"📌 População de {municipio_proj} (coluna J do SINISA): **{formatar_br(pop_calculada, auto_precision=False, casas_override=0)} habitantes**")
+            pop_atual = st.number_input(
+                f"População atual do município (habitantes) – {municipio_proj} – ajuste opcional:",
+                min_value=100,
+                value=int(pop_calculada),
+                step=1000,
+                key=f"pop_mun_proj_{municipio_proj}"
+            )
+            titulo_proj = municipio_proj
+
+        if massa_atual <= 0:
+            st.warning("Não há dados de massa coletada para a seleção.")
+        else:
+            col1, col2 = st.columns(2)
+            with col1:
+                taxa_pop = st.slider("Taxa de crescimento populacional anual (%)", 0.0, 5.0, 1.0, 0.1) / 100
+            with col2:
+                anos_proj = st.slider("Anos de projeção", 5, 30, 10)
+            if st.button("📊 Projetar Resíduos per Capita"):
+                with st.spinner("Calculando projeções..."):
+                    try:
+                        df_proj = projetar_residuos_per_capita(pop_atual, massa_atual, taxa_pop, anos_proj)
+                        fig = plot_projecao_residuos(df_proj)
+                        st.pyplot(fig)
+                        st.dataframe(df_proj.style.format({
+                            'Populacao_Projetada': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                            'Massa_Projetada_ton': lambda x: formatar_br(x, auto_precision=False, casas_override=0)
+                        }))
+                        ultimo = df_proj.iloc[-1]
+                        if titulo_proj == "Brasil":
+                            st.success(f"📌 **Em {ultimo['Ano']:.0f}, o Brasil precisará gerenciar aproximadamente {formatar_br(ultimo['Massa_Projetada_ton'], auto_precision=False, casas_override=0)} toneladas de resíduos.**")
+                        else:
+                            st.success(f"📌 **Em {ultimo['Ano']:.0f}, o município {titulo_proj} precisará gerenciar aproximadamente {formatar_br(ultimo['Massa_Projetada_ton'], auto_precision=False, casas_override=0)} toneladas de resíduos.**")
+                    except Exception as e:
+                        st.error(f"Erro na projeção: {e}")
+
+    # --- Simulação de cenários ---
+    st.markdown("---")
+    st.subheader("💰 Simulador: Quanto o município (ou o Brasil) pode ganhar com créditos de carbono?")
+    st.markdown("""
+    Simule o impacto financeiro de **aumentar gradualmente** a quantidade de orgânicos desviada do aterro para a compostagem.
+    """)
+    opcoes_sim = ["BRASIL – Todos os municípios"] + sorted(df_clean_ia[COL_MUNICIPIO].unique())
+    municipio_sim = st.selectbox(
+        "Selecione o município (ou Brasil) para a simulação:",
+        opcoes_sim,
+        key="sim_municipio"
+    )
+    if municipio_sim:
+        if municipio_sim == "BRASIL – Todos os municípios":
+            df_mun_sim = df_clean_ia.copy()
+            titulo_sim = "Brasil"
+        else:
+            df_mun_sim = df_clean_ia[df_clean_ia[COL_MUNICIPIO] == municipio_sim]
+            titulo_sim = municipio_sim
+        df_mun_sim['MCF'] = df_mun_sim[COL_DESTINO].apply(determinar_mcf_por_destino)
+        df_org_aterro = df_mun_sim[df_mun_sim['MCF'] > 0]
+        massa_aterro_atual = df_org_aterro['MASSA_COLETADA'].sum()
+        if massa_aterro_atual <= 0:
+            st.warning("Esta seleção não envia resíduos orgânicos para aterro (já utiliza compostagem ou reciclagem total).")
+        else:
+            mcf_medio = (df_org_aterro['MASSA_COLETADA'] * df_org_aterro['MCF']).sum() / massa_aterro_atual if massa_aterro_atual > 0 else 0.8
+            col1, col2 = st.columns(2)
+            with col1:
+                taxa_crescimento = st.slider("Taxa anual de aumento da compostagem (%)", 5, 30, 15, 1) / 100
+                anos_sim = st.slider("Anos de projeção", 5, 20, 10)
+            with col2:
+                inflacao_carbono = st.slider("Inflação anual do preço do carbono (%)", 0, 5, 2, 1) / 100
+            if st.button("🚀 Executar Simulação de Cenários"):
+                with st.spinner("Calculando projeções..."):
+                    try:
+                        df_evitado_mun_sim = calcular_evitado_por_municipio(df_mun_sim, COL_DESTINO, COL_MASSA)
+                        total_massa_org_sim = df_evitado_mun_sim['Massa_Org_Seletiva'].sum()
+                        total_evitado_sim = df_evitado_mun_sim['Evitado_Total'].sum()
+                        co2_evitado_por_t = total_evitado_sim / total_massa_org_sim if total_massa_org_sim > 0 else 0.5
+                        if co2_evitado_por_t <= 0:
+                            st.warning("O coeficiente de emissões evitadas é zero ou negativo. Verifique os cálculos.")
+                        else:
+                            df_sim = simular_cenarios_compostagem(
+                                massa_aterro_atual,
+                                co2_evitado_por_t,
+                                st.session_state.preco_carbono,
+                                st.session_state.taxa_cambio,
+                                anos_projecao=anos_sim,
+                                taxa_crescimento_compostagem=taxa_crescimento,
+                                inflacao_carbono=inflacao_carbono
+                            )
+                            fig = plot_simulacao_compostagem(df_sim)
+                            st.pyplot(fig)
+                            st.subheader("📈 Detalhamento Anual")
+                            st.dataframe(df_sim.style.format({
+                                'Massa_Desviada_Acumulada(t)': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                                'Receita_Anual_BRL': lambda x: f"R$ {formatar_br(x, auto_precision=False, casas_override=2)}",
+                                'Ganho_Adicional_BRL': lambda x: f"R$ {formatar_br(x, auto_precision=False, casas_override=2)}",
+                                'Receita_Acumulada_BRL': lambda x: f"R$ {formatar_br(x, auto_precision=False, casas_override=2)}"
+                            }))
+                            valor_final = df_sim['Receita_Acumulada_BRL'].iloc[-1]
+                            valor_final_fmt = formatar_br(valor_final, auto_precision=False, casas_override=2)
+                            st.success(f"💰 **Potencial total em {anos_sim} anos para {titulo_sim}: R$ {valor_final_fmt}**")
+                            with st.expander("📊 Ver detalhamento dos cálculos (baseline e compostagem)"):
+                                st.markdown("""
+                                ### 🔍 Metodologia utilizada
+                                - **Baseline (aterro)**: UNFCCC A6.4-AMT-003 – CH₄ apenas, φ=0.85, OX=0.383, GWP_CH4=28.
+                                - **Cenário de compostagem**: UNFCCC TOOL13 / AMS-III.F – CH₄=0.002, N₂O=0.0002, GWP_CH4=28, GWP_N2O=265.
+                                - **Emissões evitadas** = emissões do aterro – emissões da compostagem.
+                                - O fator de evitado médio (por tonelada) foi calculado a partir dos dados reais de todos os municípios com coleta seletiva orgânica.
+                                """)
+                                st.markdown(f"""
+                                **📌 Dados de entrada:**
+                                - Massa de orgânicos que vai para aterro atualmente: **{formatar_br(massa_aterro_atual, auto_precision=False, casas_override=0)} t/ano**
+                                - **MCF médio ponderado:** {formatar_br(mcf_medio, auto_precision=False, casas_override=2)}
+                                - **DOC/k específicos:** calculados por município (média ponderada)
+                                - **Evitado médio por tonelada (real):** {formatar_br(co2_evitado_por_t, auto_precision=False, casas_override=2)} tCO₂e/t
+                                """)
+                                st.info("""
+                                💡 **Interpretação:**  
+                                A cada ano, a quantidade de resíduos desviada para compostagem aumenta, gerando mais emissões evitadas e, consequentemente, mais receita com créditos de carbono.  
+                                O valor acumulado mostra o potencial total de ganhos ao longo do período.
+                                """)
+                            st.info("ℹ️ Esta simulação considera o aumento gradual da compostagem ano a ano, com base nos dados atuais do SINISA. O valor é acumulado.")
+                    except Exception as e:
+                        st.error(f"Erro na simulação: {e}")
+
+    # --- Cenários de Expansão ---
+    st.markdown("---")
+    st.subheader("🌍 Cenários de Expansão da Compostagem no Brasil")
+    st.markdown("""
+    Esta seção analisa o cenário atual da compostagem de resíduos orgânicos no Brasil e projeta cenários futuros,
+    priorizando os municípios que já possuem coleta seletiva de orgânicos.
+    """)
+    mask_organicos = df_clean_ia[COL_TIPO_COLETA].astype(str).str.contains(
+        "seletiva.*orgânico|orgânico.*seletiva", case=False, na=False, regex=True
+    )
+    df_org = df_clean_ia[mask_organicos].copy()
+    if df_org.empty:
+        st.info("Nenhum município registrou coleta seletiva de resíduos orgânicos no SINISA para este ano.")
+    else:
+        with st.spinner("Calculando evitados reais por município..."):
+            df_evitado_mun = calcular_evitado_por_municipio(df_clean_ia, COL_DESTINO, COL_MASSA)
+            total_massa_org_real = df_evitado_mun['Massa_Org_Seletiva'].sum()
+            total_evitado_real = df_evitado_mun['Evitado_Total'].sum()
+            evitado_medio_por_t_real = total_evitado_real / total_massa_org_real if total_massa_org_real > 0 else 0
+
+        df_org['MCF'] = df_org[COL_DESTINO].apply(determinar_mcf_por_destino)
+        df_aterro = df_org[df_org['MCF'] > 0].groupby(COL_MUNICIPIO).agg({COL_MASSA: 'sum'}).reset_index()
+        df_aterro.rename(columns={COL_MASSA: 'Massa_Aterro'}, inplace=True)
+        df_compost = df_org[df_org['MCF'] == 0].groupby(COL_MUNICIPIO).agg({COL_MASSA: 'sum'}).reset_index()
+        df_compost.rename(columns={COL_MASSA: 'Massa_Compostagem'}, inplace=True)
+        df_mun_cenario = pd.merge(df_aterro, df_compost, on=COL_MUNICIPIO, how='outer').fillna(0)
+        df_mun_cenario['Massa_Total'] = df_mun_cenario['Massa_Aterro'] + df_mun_cenario['Massa_Compostagem']
+        df_uf_mun = df_clean_ia[[COL_MUNICIPIO, "UF"]].drop_duplicates(subset=[COL_MUNICIPIO])
+        df_mun_cenario = pd.merge(df_mun_cenario, df_uf_mun, on=COL_MUNICIPIO, how='left')
+        df_mun_cenario['Pct_Compostagem'] = (df_mun_cenario['Massa_Compostagem'] / df_mun_cenario['Massa_Total']) * 100
+        df_mun_cenario['Pct_Compostagem'] = df_mun_cenario['Pct_Compostagem'].fillna(0).round(2)
+        df_total_mun = df_clean_ia.groupby(COL_MUNICIPIO).agg({COL_MASSA: 'sum'}).reset_index()
+        df_total_mun.rename(columns={COL_MASSA: 'Massa_Total_RSU'}, inplace=True)
+        df_org_sum = df_org.groupby(COL_MUNICIPIO).agg({COL_MASSA: 'sum'}).reset_index()
+        df_org_sum.rename(columns={COL_MASSA: 'Massa_Seletiva_Organicos'}, inplace=True)
+        df_pct_seletiva = pd.merge(df_total_mun, df_org_sum, on=COL_MUNICIPIO, how='inner')
+        df_pct_seletiva['Pct_Seletiva'] = (df_pct_seletiva['Massa_Seletiva_Organicos'] / df_pct_seletiva['Massa_Total_RSU']) * 100
+        df_pct_seletiva['Pct_Seletiva'] = df_pct_seletiva['Pct_Seletiva'].fillna(0).round(2)
+        df_uf_mun2 = df_clean_ia[[COL_MUNICIPIO, "UF"]].drop_duplicates(subset=[COL_MUNICIPIO])
+        df_pct_seletiva = pd.merge(df_pct_seletiva, df_uf_mun2, on=COL_MUNICIPIO, how='left')
+        total_aterro = df_mun_cenario['Massa_Aterro'].sum()
+        total_compost = df_mun_cenario['Massa_Compostagem'].sum()
+        total_massa_org = total_aterro + total_compost
+        pct_compost_real = (total_compost / total_massa_org) * 100 if total_massa_org > 0 else 0
+
+        st.markdown("### 📊 Cenário Atual")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Municípios com coleta seletiva", len(df_mun_cenario))
+        col2.metric("Total de orgânicos coletados", f"{formatar_br(total_massa_org, auto_precision=False, casas_override=0)} t")
+        col3.metric("Percentual destinado à compostagem", f"{formatar_br(pct_compost_real, auto_precision=False, casas_override=2)}%")
+
+        st.markdown("#### 📋 Municípios com coleta seletiva – detalhamento")
+        df_mun_detalhe = df_mun_cenario[['MUNICÍPIO', 'UF', 'Massa_Total', 'Massa_Compostagem', 'Pct_Compostagem']].copy()
+        df_mun_detalhe = df_mun_detalhe.sort_values('Pct_Compostagem', ascending=False)
+        st.dataframe(
+            df_mun_detalhe.style.format({
+                'Massa_Total': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                'Massa_Compostagem': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                'Pct_Compostagem': lambda x: formatar_br(x, auto_precision=False, casas_override=2) + '%'
+            }),
+            use_container_width=True
+        )
+
+        with st.expander("📋 Percentual de coleta seletiva dos municípios com coleta seletiva"):
+            cols_to_show = ['MUNICÍPIO', 'Massa_Total_RSU', 'Massa_Seletiva_Organicos', 'Pct_Seletiva']
+            if 'UF' in df_pct_seletiva.columns:
+                cols_to_show.insert(1, 'UF')
+            st.dataframe(
+                df_pct_seletiva[cols_to_show].style.format({
+                    'Massa_Total_RSU': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                    'Massa_Seletiva_Organicos': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                    'Pct_Seletiva': lambda x: formatar_br(x, auto_precision=False, casas_override=2) + '%'
+                }),
+                use_container_width=True
+            )
+
+        st.markdown("---")
+        st.subheader("📌 Cenário 1 – Situação Atual (com percentual real de compostagem)")
+        massa_compost_real = total_compost
+        evitado_atual = total_evitado_real
+        receita_atual = evitado_atual * st.session_state.preco_carbono * st.session_state.taxa_cambio
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Massa compostada atualmente", f"{formatar_br(massa_compost_real, auto_precision=False, casas_override=0)} t")
+        with col2:
+            st.metric("Emissões evitadas (atual)", f"{formatar_br(evitado_atual, auto_precision=False, casas_override=2)} tCO₂e")
+        st.metric("Receita anual estimada (atual)", f"R$ {formatar_br(receita_atual, auto_precision=False, casas_override=2)}")
+        st.caption(f"Percentual de compostagem sobre o total de orgânicos: {formatar_br(pct_compost_real, auto_precision=False, casas_override=2)}%")
+
+        st.markdown("---")
+        st.subheader("📌 Cenário 2 – Expansão da coleta seletiva para novos municípios")
+        df_total_geral = df_clean_ia.groupby(COL_MUNICIPIO).agg({
+            COL_MASSA: 'sum',
+            "UF": 'first'
+        }).reset_index()
+        df_total_geral.rename(columns={COL_MASSA: 'Massa_Total_Geral'}, inplace=True)
+        municipios_com_seletiva = df_mun_cenario['MUNICÍPIO'].unique()
+        df_sem_seletiva = df_total_geral[~df_total_geral[COL_MUNICIPIO].isin(municipios_com_seletiva)]
+        massa_sem_seletiva = df_sem_seletiva['Massa_Total_Geral'].sum()
+        num_sem_seletiva = len(df_sem_seletiva)
+        num_com_seletiva = len(municipios_com_seletiva)
+        st.markdown(f"""
+        Este cenário considera a implementação da coleta seletiva de orgânicos em municípios que atualmente não a possuem.
+
+        **Contexto atual:**
+        - **{num_com_seletiva} municípios** já possuem coleta seletiva de orgânicos.
+        - **{num_sem_seletiva} municípios** ainda não possuem essa coleta.
+        - Esses {num_sem_seletiva} municípios geram **{formatar_br(massa_sem_seletiva, auto_precision=False, casas_override=0)} t/ano** de resíduos sólidos urbanos.
+        """)
+        if massa_sem_seletiva == 0:
+            st.info("✅ Todos os municípios já possuem coleta seletiva de orgânicos. Não há expansão possível.")
+        else:
+            pct_25 = df_pct_seletiva['Pct_Seletiva'].quantile(0.25)
+            pct_media = df_pct_seletiva['Pct_Seletiva'].mean()
+            if pct_25 <= 0.01 or np.isnan(pct_25):
+                pct_25 = 0.5
+                st.warning("⚠️ O 1º quartil calculado foi muito baixo ou nulo. Usando valor de fallback de 0,5% para o cenário realista.")
+            if pct_media <= 0.01 or np.isnan(pct_media):
+                pct_media = 2.0
+                st.warning("⚠️ A média calculada foi muito baixa ou nula. Usando valor de fallback de 2,0% para o cenário otimista.")
+            tipo_cenario = st.radio(
+                "Escolha a meta de cobertura para os novos municípios:",
+                options=["Realista (1º quartil)", "Otimista (média)"],
+                index=0
+            )
+            if tipo_cenario == "Realista (1º quartil)":
+                meta_cobertura = pct_25
+                rotulo = f"1º quartil ({formatar_br(pct_25, auto_precision=False, casas_override=2)}%)"
+            else:
+                meta_cobertura = pct_media
+                rotulo = f"média ({formatar_br(pct_media, auto_precision=False, casas_override=2)}%)"
+            st.info(f"**Meta de cobertura escolhida:** {rotulo}")
+            massa_adicional_coletada = massa_sem_seletiva * (meta_cobertura / 100)
+            massa_adicional_compost = massa_adicional_coletada * (pct_compost_real / 100)
+            evitado_adicional = massa_adicional_compost * evitado_medio_por_t_real
+            receita_adicional = evitado_adicional * st.session_state.preco_carbono * st.session_state.taxa_cambio
+            massa_total_compost_futuro = massa_compost_real + massa_adicional_compost
+            evitado_total = evitado_atual + evitado_adicional
+            receita_total = receita_atual + receita_adicional
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Massa adicional coletada seletivamente", f"{formatar_br(massa_adicional_coletada, auto_precision=False, casas_override=0)} t")
+                st.caption(f"Meta de cobertura: {formatar_br(meta_cobertura, auto_precision=False, casas_override=2)}%")
+            with col2:
+                st.metric("Massa adicional compostada", f"{formatar_br(massa_adicional_compost, auto_precision=False, casas_override=0)} t")
+                st.caption(f"Taxa de compostagem: {formatar_br(pct_compost_real, auto_precision=False, casas_override=2)}%")
+            with col3:
+                st.metric("Receita adicional", f"R$ {formatar_br(receita_adicional, auto_precision=False, casas_override=2)}")
+            st.markdown("---")
+            st.subheader("📈 Resultado consolidado após expansão")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Massa total compostada (futuro)", f"{formatar_br(massa_total_compost_futuro, auto_precision=False, casas_override=0)} t")
+                st.caption(f"Acréscimo de {formatar_br((massa_adicional_compost/massa_compost_real)*100 if massa_compost_real>0 else 0, auto_precision=False, casas_override=1)}%")
+            with col2:
+                st.metric("Receita total anual (futuro)", f"R$ {formatar_br(receita_total, auto_precision=False, casas_override=2)}")
+                st.caption(f"Acréscimo de {formatar_br((receita_adicional/receita_atual)*100 if receita_atual>0 else 0, auto_precision=False, casas_override=1)}%")
+            with st.expander("📋 Principais municípios sem coleta seletiva (prioritários para expansão)"):
+                df_top_sem = df_sem_seletiva.nlargest(10, 'Massa_Total_Geral')[['MUNICÍPIO', 'UF', 'Massa_Total_Geral']]
+                st.dataframe(
+                    df_top_sem.style.format({
+                        'Massa_Total_Geral': lambda x: formatar_br(x, auto_precision=False, casas_override=0)
+                    }),
+                    use_container_width=True
+                )
+                st.caption(f"Total de {len(df_sem_seletiva)} municípios sem coleta seletiva, representando {formatar_br(massa_sem_seletiva, auto_precision=False, casas_override=0)} t de resíduos.")
+            st.info("""
+            💡 **Interpretação:**  
+            - O **Cenário 1** mostra a situação atual, com o percentual real de compostagem sobre os orgânicos coletados seletivamente.  
+            - O **Cenário 2** projeta o ganho ao implementar coleta seletiva em novos municípios, usando uma meta realista (1º quartil) ou otimista (média) de cobertura.  
+            - A taxa de compostagem aplicada sobre a nova coleta é a mesma observada atualmente (percentual real).
+            """)
+
+    # --- Análise de Cobertura ---
+    st.markdown("---")
+    st.subheader("📊 Análise de Cobertura da Coleta Seletiva de Orgânicos")
+    st.markdown("""
+    Esta seção analisa o percentual da massa total de resíduos que é coberta pela coleta seletiva de orgânicos em cada município,
+    e projeta o impacto de uma expansão da cobertura para todos os municípios, com três cenários.
+    """)
+    df_total = df_clean_ia.groupby(COL_MUNICIPIO).agg({
+        COL_MASSA: 'sum',
+        "UF": 'first'
+    }).reset_index()
+    df_total.rename(columns={COL_MASSA: 'Massa_Total'}, inplace=True)
+    mask_organicos = df_clean_ia[COL_TIPO_COLETA].astype(str).str.contains(
+        "seletiva.*orgânico|orgânico.*seletiva", case=False, na=False, regex=True
+    )
+    df_seletiva = df_clean_ia[mask_organicos].groupby(COL_MUNICIPIO).agg({COL_MASSA: 'sum'}).reset_index()
+    df_seletiva.rename(columns={COL_MASSA: 'Massa_Seletiva_Organicos'}, inplace=True)
+    df_cobertura = pd.merge(df_total, df_seletiva, on=COL_MUNICIPIO, how='left').fillna(0)
+    df_cobertura['Pct_Seletiva'] = (df_cobertura['Massa_Seletiva_Organicos'] / df_cobertura['Massa_Total']) * 100
+    df_cobertura['Pct_Seletiva'] = df_cobertura['Pct_Seletiva'].round(2)
+    df_cobertura['Possui_Seletiva'] = df_cobertura['Massa_Seletiva_Organicos'] > 0
+    total_municipios = len(df_cobertura)
+    municipios_com_seletiva = df_cobertura[df_cobertura['Possui_Seletiva']].shape[0]
+    municipios_sem_seletiva = total_municipios - municipios_com_seletiva
+    massa_total_brasil = df_cobertura['Massa_Total'].sum()
+    massa_seletiva_brasil = df_cobertura['Massa_Seletiva_Organicos'].sum()
+    pct_seletiva_brasil = (massa_seletiva_brasil / massa_total_brasil) * 100 if massa_total_brasil > 0 else 0
+    media_pct_municipios = df_cobertura[df_cobertura['Massa_Total'] > 0]['Pct_Seletiva'].mean()
+    st.markdown("### 📊 Resumo Nacional")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Municípios totais", total_municipios)
+    col2.metric("Com coleta seletiva de orgânicos", municipios_com_seletiva)
+    col3.metric("Sem coleta seletiva de orgânicos", municipios_sem_seletiva)
+    col4.metric("Massa total de RSU", f"{formatar_br(massa_total_brasil, auto_precision=False, casas_override=0)} t")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Massa em coleta seletiva orgânica", f"{formatar_br(massa_seletiva_brasil, auto_precision=False, casas_override=0)} t")
+    col2.metric("Percentual nacional (massa)", f"{formatar_br(pct_seletiva_brasil, auto_precision=False, casas_override=2)}%")
+    col3.metric("Média municipal (não ponderada)", f"{formatar_br(media_pct_municipios, auto_precision=False, casas_override=2)}%")
+    st.markdown("### 🏆 Destaques da Coleta Seletiva de Orgânicos")
+    df_com_seletiva = df_cobertura[df_cobertura['Possui_Seletiva']].copy()
+    if not df_com_seletiva.empty:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("#### 📊 Top 10 – Maior Percentual de Cobertura")
+            top_pct = df_com_seletiva.nlargest(10, 'Pct_Seletiva')
+            top_pct = top_pct[['MUNICÍPIO', 'UF', 'Massa_Seletiva_Organicos', 'Massa_Total', 'Pct_Seletiva']]
+            st.dataframe(
+                top_pct.style.format({
+                    'Massa_Seletiva_Organicos': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                    'Massa_Total': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                    'Pct_Seletiva': lambda x: formatar_br(x, auto_precision=False, casas_override=2) + '%'
+                }),
+                use_container_width=True,
+                hide_index=True
+            )
+        with col2:
+            st.markdown("#### 📊 Top 10 – Maior Massa Destinada à Compostagem")
+            top_massa = df_com_seletiva.nlargest(10, 'Massa_Seletiva_Organicos')
+            top_massa = top_massa[['MUNICÍPIO', 'UF', 'Massa_Seletiva_Organicos', 'Massa_Total', 'Pct_Seletiva']]
+            st.dataframe(
+                top_massa.style.format({
+                    'Massa_Seletiva_Organicos': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                    'Massa_Total': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                    'Pct_Seletiva': lambda x: formatar_br(x, auto_precision=False, casas_override=2) + '%'
+                }),
+                use_container_width=True,
+                hide_index=True
+            )
+    else:
+        st.info("Nenhum município com coleta seletiva de orgânicos para listar.")
+    with st.expander("📋 Detalhamento por município (clique para expandir)"):
+        st.dataframe(
+            df_cobertura.style.format({
+                'Massa_Total': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                'Massa_Seletiva_Organicos': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                'Pct_Seletiva': lambda x: formatar_br(x, auto_precision=False, casas_override=2) + '%'
+            }),
+            use_container_width=True
+        )
+    st.subheader("📊 Distribuição dos percentuais de cobertura")
+    fig, ax = plt.subplots(figsize=(10, 6))
+    df_plot = df_cobertura[df_cobertura['Massa_Total'] > 0]
+    bins = np.linspace(0, 100, 21)
+    ax.hist(df_plot['Pct_Seletiva'], bins=bins, color='skyblue', edgecolor='black', alpha=0.7)
+    ax.axvline(pct_seletiva_brasil, color='red', linestyle='--', label=f'Média nacional (massa): {pct_seletiva_brasil:.2f}%')
+    ax.axvline(media_pct_municipios, color='green', linestyle='--', label=f'Média municipal: {media_pct_municipios:.2f}%')
+    ax.set_xlabel('Percentual de coleta seletiva de orgânicos (%)')
+    ax.set_ylabel('Número de municípios')
+    ax.set_title('Distribuição da cobertura da coleta seletiva de orgânicos por município')
+    ax.legend()
+    ax.grid(True, linestyle='--', alpha=0.3)
+    plt.tight_layout()
+    st.pyplot(fig)
+    plt.close(fig)
+
+    st.markdown("### 🚀 Cenários de Expansão da Cobertura")
+    st.markdown("""
+    Três cenários são apresentados para a universalização da coleta seletiva de orgânicos:
+    - **Cenário Atual (Pessimista)**: mantém a situação atual (sem expansão).
+    - **Cenário Realista**: municípios sem coleta seletiva alcançam o **1º quartil (25%)** dos percentuais dos municípios que já possuem coleta seletiva.
+    - **Cenário Otimista**: municípios sem coleta seletiva alcançam a **média** dos percentuais dos municípios que já possuem coleta seletiva.
+    """)
+    df_com_seletiva = df_cobertura[df_cobertura['Possui_Seletiva']]
+    if not df_com_seletiva.empty and len(df_com_seletiva) >= 4:
+        pct_25 = np.percentile(df_com_seletiva['Pct_Seletiva'], 25)
+        pct_media = df_com_seletiva['Pct_Seletiva'].mean()
+    elif not df_com_seletiva.empty:
+        pct_25 = df_com_seletiva['Pct_Seletiva'].min()
+        pct_media = df_com_seletiva['Pct_Seletiva'].mean()
+    else:
+        pct_25 = 0
+        pct_media = 0
+    if pct_25 <= 0.01 or np.isnan(pct_25):
+        pct_25 = 0.5
+        st.warning("⚠️ O 1º quartil calculado foi muito baixo ou nulo. Usando valor de fallback de 0,5% para o cenário realista.")
+    if pct_media <= 0.01 or np.isnan(pct_media):
+        pct_media = 2.0
+        st.warning("⚠️ A média calculada foi muito baixa ou nula. Usando valor de fallback de 2,0% para o cenário otimista.")
+    df_sem_seletiva = df_cobertura[~df_cobertura['Possui_Seletiva']]
+    massa_sem_seletiva = df_sem_seletiva['Massa_Total'].sum()
+    massa_adicional_realista = massa_sem_seletiva * (pct_25 / 100) if pct_25 > 0 else 0
+    massa_adicional_otimista = massa_sem_seletiva * (pct_media / 100) if pct_media > 0 else 0
+    massa_compostada_atual = massa_seletiva_brasil
+    evitado_atual = total_evitado_real
+    evitado_adicional_realista = massa_adicional_realista * evitado_medio_por_t_real
+    massa_compostada_realista = massa_compostada_atual + massa_adicional_realista
+    evitado_total_realista = evitado_atual + evitado_adicional_realista
+    receita_total_realista = evitado_total_realista * st.session_state.preco_carbono * st.session_state.taxa_cambio
+    evitado_adicional_otimista = massa_adicional_otimista * evitado_medio_por_t_real
+    massa_compostada_otimista = massa_compostada_atual + massa_adicional_otimista
+    evitado_total_otimista = evitado_atual + evitado_adicional_otimista
+    receita_total_otimista = evitado_total_otimista * st.session_state.preco_carbono * st.session_state.taxa_cambio
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("#### 📉 Cenário Atual (Pessimista)")
+        st.metric("Massa compostada", f"{formatar_br(massa_compostada_atual, auto_precision=False, casas_override=0)} t")
+        st.metric("Emissões evitadas", f"{formatar_br(evitado_atual, auto_precision=False, casas_override=2)} tCO₂e")
+        st.metric("Receita", f"R$ {formatar_br(receita_atual, auto_precision=False, casas_override=2)}")
+        st.caption(f"Cobertura nacional: {formatar_br(pct_seletiva_brasil, auto_precision=False, casas_override=2)}%")
+    with col2:
+        st.markdown("#### 📊 Cenário Realista (1º Quartil)")
+        st.metric("Massa compostada", f"{formatar_br(massa_compostada_realista, auto_precision=False, casas_override=0)} t")
+        st.metric("Massa adicional", f"{formatar_br(massa_adicional_realista, auto_precision=False, casas_override=0)} t")
+        st.metric("Emissões evitadas totais", f"{formatar_br(evitado_total_realista, auto_precision=False, casas_override=2)} tCO₂e")
+        st.metric("Receita total", f"R$ {formatar_br(receita_total_realista, auto_precision=False, casas_override=2)}")
+        st.caption(f"Meta de cobertura: {formatar_br(pct_25, auto_precision=False, casas_override=2)}% (1º quartil)")
+    with col3:
+        st.markdown("#### 📈 Cenário Otimista (Média)")
+        st.metric("Massa compostada", f"{formatar_br(massa_compostada_otimista, auto_precision=False, casas_override=0)} t")
+        st.metric("Massa adicional", f"{formatar_br(massa_adicional_otimista, auto_precision=False, casas_override=0)} t")
+        st.metric("Emissões evitadas totais", f"{formatar_br(evitado_total_otimista, auto_precision=False, casas_override=2)} tCO₂e")
+        st.metric("Receita total", f"R$ {formatar_br(receita_total_otimista, auto_precision=False, casas_override=2)}")
+        st.caption(f"Meta de cobertura: {formatar_br(pct_media, auto_precision=False, casas_override=2)}% (média)")
+
+    with st.expander("📋 Municípios com menores percentuais de cobertura (referência para os cenários)"):
+        st.markdown("#### 📊 Menores percentuais **positivos** (> 0%)")
+        if not df_com_seletiva.empty:
+            df_referencia = df_com_seletiva.nsmallest(10, 'Pct_Seletiva')[['MUNICÍPIO', 'UF', 'Pct_Seletiva', 'Massa_Total']]
+            st.dataframe(
+                df_referencia.style.format({
+                    'Pct_Seletiva': lambda x: formatar_br(x, auto_precision=False, casas_override=2) + '%',
+                    'Massa_Total': lambda x: formatar_br(x, auto_precision=False, casas_override=0)
+                }),
+                use_container_width=True
+            )
+            st.caption(f"📌 O cenário realista usa o 1º quartil ({formatar_br(pct_25, auto_precision=False, casas_override=2)}%) como meta, baseado nos 25% menores percentuais entre os que já possuem coleta seletiva.")
+        else:
+            st.info("Nenhum município com coleta seletiva para referência.")
+        st.markdown("---")
+        st.markdown("#### 🚫 Municípios com **0% de cobertura** (sem coleta seletiva de orgânicos)")
+        if not df_sem_seletiva.empty:
+            df_zero = df_sem_seletiva.nlargest(10, 'Massa_Total')[['MUNICÍPIO', 'UF', 'Massa_Total']]
+            st.dataframe(
+                df_zero.style.format({
+                    'Massa_Total': lambda x: formatar_br(x, auto_precision=False, casas_override=0)
+                }),
+                use_container_width=True
+            )
+            total_zero = len(df_sem_seletiva)
+            massa_zero = df_sem_seletiva['Massa_Total'].sum()
+            st.caption(f"📌 Total de {total_zero} municípios sem coleta seletiva, que representam {formatar_br(massa_zero, auto_precision=False, casas_override=0)} t de resíduos (potencial de expansão).")
+        else:
+            st.success("✅ Todos os municípios já possuem coleta seletiva de orgânicos!")
+
+    st.info("""
+    💡 **Interpretação:**  
+    - O cenário atual mostra as emissões evitadas com a infraestrutura existente.  
+    - O cenário realista é uma meta factível, baseada no que os municípios com menores índices já conseguem alcançar.  
+    - O cenário otimista representa uma meta mais ambiciosa, baseada na média dos municípios que já possuem coleta seletiva.  
+    - A receita total considera o preço do carbono e o câmbio atuais.
+    """)
+
+    # =========================================================
+    # NOVA SEÇÃO: CENÁRIOS DE EXPANSÃO CONSIDERANDO DEPÓSITOS CONTÍNUOS (ACUMULAÇÃO DE 20 ANOS)
+    # =========================================================
+    st.markdown("---")
+    st.subheader("📈 Cenários de Expansão com Depósitos Contínuos (Acumulação de 20 Anos)")
+
+    st.markdown("""
+    Os cenários acima consideram as emissões evitadas **anuais** (média de 1 depósito). No entanto, a realidade de um aterro é de **depósitos anuais repetidos**, onde o metano se acumula ao longo do tempo.
+
+    A tabela abaixo recalcula os mesmos cenários considerando o **passivo acumulado no 20º ano** de operação contínua do aterro, usando o modelo de decaimento da UNFCCC A6.4-AMT-003.
+
+    - **Fator de acumulação**: razão entre a emissão no 20º ano (depósitos contínuos) e a emissão média de 1 depósito.
+    - Quanto maior o fator, maior o impacto do passivo acumulado.
+    """)
+
+    # Calcular o fator de acumulação para o Brasil (média ponderada)
+    with st.spinner("Calculando fator de acumulação para os cenários contínuos..."):
+        # Usa os dados de emissão já processados (df_emissoes) para calcular o fator médio
+        # Se df_emissoes não estiver disponível, usa valores padrão
+        if 'df_emissoes' in locals() and not df_emissoes.empty:
+            # Calcula a massa total e parâmetros médios ponderados
+            massa_total = df_emissoes['Massa_Aterro_Anual_t'].sum()
+            if massa_total > 0:
+                mcf_medio = (df_emissoes['Massa_Aterro_Anual_t'] * df_emissoes['MCF_Medio']).sum() / massa_total
+                doc_medio = (df_emissoes['Massa_Aterro_Anual_t'] * df_emissoes['DOC_Medio']).sum() / massa_total
+                docf_medio = (df_emissoes['Massa_Aterro_Anual_t'] * df_emissoes['DOCF_Medio']).sum() / massa_total
+                k_medio = (df_emissoes['Massa_Aterro_Anual_t'] * df_emissoes['k_Medio']).sum() / massa_total
+                
+                # Fator de emissão por tonelada
+                ch4_pot_kg = (doc_medio * docf_medio * mcf_medio * F_METHANE_FRACTION * (16/12) *
+                              (1 - OX_SOIL_COVER) * PHI_APPLICATION_B)
+                fator_tco2_por_ton = ch4_pot_kg * GWP_CH4  # tCO2e por tonelada
+                
+                # Emissão média de 1 depósito (por tonelada) = fator * (1 - exp(-k*20)) / 20
+                emissao_media_por_t = fator_tco2_por_ton * (1 - np.exp(-k_medio * 20)) / 20
+                
+                # Emissão no ano 20 (depósitos contínuos) por tonelada = fator * (1 - exp(-k*20))
+                emissao_continua_por_t = fator_tco2_por_ton * (1 - np.exp(-k_medio * 20))
+                
+                # Fator de acumulação = emissão contínua / emissão média
+                fator_acumulacao = emissao_continua_por_t / emissao_media_por_t if emissao_media_por_t > 0 else 20
+            else:
+                fator_acumulacao = 20  # fallback
+        else:
+            # fallback se df_emissoes não estiver disponível
+            fator_acumulacao = 20
+
+        st.info(f"📌 **Fator de acumulação médio para o Brasil: {fator_acumulacao:.1f}x** — ou seja, a emissão anual no 20º ano de operação contínua é {fator_acumulacao:.1f} vezes maior que a média de um único depósito.")
+
+    # Recalcula os cenários com o fator de acumulação
+    fator = fator_acumulacao
+
+    # Cenário Atual (Pessimista) – contínuo
+    massa_compost_cont = massa_compostada_atual  # a massa desviada é a mesma, mas o impacto é multiplicado
+    emissao_evitada_cont = evitado_atual * fator
+    receita_cont = receita_atual * fator
+
+    # Cenário Realista – contínuo
+    massa_compost_realista_cont = massa_compostada_realista
+    emissao_evitada_realista_cont = evitado_total_realista * fator
+    receita_realista_cont = receita_total_realista * fator
+
+    # Cenário Otimista – contínuo
+    massa_compost_otimista_cont = massa_compostada_otimista
+    emissao_evitada_otimista_cont = evitado_total_otimista * fator
+    receita_otimista_cont = receita_total_otimista * fator
+
+    # Exibe os resultados
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("#### 📉 Cenário Atual (Contínuo)")
+        st.metric("Massa compostada", f"{formatar_br(massa_compost_cont, auto_precision=False, casas_override=0)} t")
+        st.metric("Emissões evitadas (20º ano)", f"{formatar_br(emissao_evitada_cont, auto_precision=False, casas_override=2)} tCO₂e")
+        st.metric("Receita (20º ano)", f"R$ {formatar_br(receita_cont, auto_precision=False, casas_override=2)}")
+        st.caption(f"Fator de acúmulo: {fator:.1f}x")
+
+    with col2:
+        st.markdown("#### 📊 Cenário Realista (Contínuo)")
+        st.metric("Massa compostada", f"{formatar_br(massa_compost_realista_cont, auto_precision=False, casas_override=0)} t")
+        st.metric("Massa adicional", f"{formatar_br(massa_adicional_realista, auto_precision=False, casas_override=0)} t")
+        st.metric("Emissões evitadas (20º ano)", f"{formatar_br(emissao_evitada_realista_cont, auto_precision=False, casas_override=2)} tCO₂e")
+        st.metric("Receita (20º ano)", f"R$ {formatar_br(receita_realista_cont, auto_precision=False, casas_override=2)}")
+        st.caption(f"Fator de acúmulo: {fator:.1f}x")
+
+    with col3:
+        st.markdown("#### 📈 Cenário Otimista (Contínuo)")
+        st.metric("Massa compostada", f"{formatar_br(massa_compost_otimista_cont, auto_precision=False, casas_override=0)} t")
+        st.metric("Massa adicional", f"{formatar_br(massa_adicional_otimista, auto_precision=False, casas_override=0)} t")
+        st.metric("Emissões evitadas (20º ano)", f"{formatar_br(emissao_evitada_otimista_cont, auto_precision=False, casas_override=2)} tCO₂e")
+        st.metric("Receita (20º ano)", f"R$ {formatar_br(receita_otimista_cont, auto_precision=False, casas_override=2)}")
+        st.caption(f"Fator de acúmulo: {fator:.1f}x")
+
+    st.info(f"""
+    💡 **Interpretação dos cenários contínuos:**
+    - Os valores acima representam as **emissões evitadas e receitas no 20º ano** de operação contínua, considerando que a cada ano a mesma quantidade de resíduos é desviada do aterro para compostagem.
+    - O fator de acumulação de **{fator:.1f}x** significa que, devido ao passivo acumulado, o impacto da compostagem no 20º ano é **{fator:.1f} vezes maior** do que a média anual calculada para um único depósito.
+    - Isso demonstra que **quanto mais cedo as políticas de desvio forem implementadas, maior será o benefício acumulado** ao longo do tempo.
+    """)
+
+#B10
+
+# =========================================================
+# ABA DIAGNÓSTICO DE EMISSÕES (com a nova seção de limiares contínuos no final)
+# =========================================================
+with tab_diagnostico:
+    st.header("🔥 Diagnóstico de Emissões de Metano (Baseline)")
+
+    # >>> ADIÇÃO: checkbox "Ocultar transbordos" no topo desta aba <<<
+    ocultar_transbordo_diag = st.checkbox(
+        "Ocultar transbordos (nesta aba)",
+        value=False,
+        key="ocultar_transbordo_diag",
+        help="Exclui rotas cujo destino é 'Transbordo' em todas as análises desta aba."
+    )
+    if ocultar_transbordo_diag:
+        df_clean_diag = df_clean[~df_clean[COL_DESTINO].apply(
+            lambda x: "TRANSBORDO" in normalizar_texto(x) if pd.notna(x) else False
+        )].copy()
+    else:
+        df_clean_diag = df_clean.copy()
+
+    st.markdown("""
+    Esta análise revela **quanto cada município emite com base nos dados mais recentes do SINISA** (ano selecionado), 
+    considerando **três fatores determinantes**:
+    
+    1. **Quantidade de resíduos** enviada a aterros (massa real declarada);
+    2. **Mix de resíduos** (composição orgânica, representada pelo DOC e taxa de decaimento k);
+    3. **Destino final e gestão** (MCF – diferencia aterros sanitários, controlados e lixões).
+    
+    O cálculo segue a **metodologia UNFCCC A6.4-AMT-003 (modelo anual, Equação 1)**, projetando a geração de metano ao longo de **20 anos** a partir da massa de resíduos depositada no ano de referência. O valor exibido é a **média anual** desse total acumulado em 20 anos.
+    
+    **Use este diagnóstico para priorizar políticas públicas:** municípios com alta emissão e alta intensidade são os que mais se beneficiam com a implantação de compostagem ou melhoria da gestão de aterros.
+    """)
+    
+    @st.cache_data
+    def calcular_emissoes_brutas_por_municipio(df):
+        resultados = []
+        municipios = df['MUNICÍPIO'].unique()
+        with st.spinner(f"🔄 Calculando emissões para {len(municipios)} municípios... (pode levar alguns segundos)"):
+            for mun in municipios:
+                df_mun = df[df['MUNICÍPIO'] == mun].copy()
+                doc_pond, docf_pond, k_pond = calcular_doc_k_ponderado(df_mun)
+                df_mun['MCF'] = df_mun[COL_DESTINO].apply(lambda x: determinar_mcf_por_destino(x, 'organico'))
+                df_aterro = df_mun[df_mun['MCF'] > 0].copy()
+                if df_aterro.empty:
+                    continue
+                df_aterro['MASSA_FLOAT'] = pd.to_numeric(df_aterro['MASSA_COLETADA'], errors='coerce').fillna(0)
+                df_aterro = df_aterro[df_aterro['MASSA_FLOAT'] > 0]
+                if df_aterro.empty:
+                    continue
+                massa_total_aterro = df_aterro['MASSA_FLOAT'].sum()
+                mcf_medio = (df_aterro['MASSA_FLOAT'] * df_aterro['MCF']).sum() / massa_total_aterro
+                co2eq_20anos = calcular_co2eq_aterro_20anos(massa_total_aterro, mcf_medio, k_pond, doc_pond, docf_pond)
+                emissao_anual = co2eq_20anos / 20.0
+                if 'POPULACAO_TOTAL' in df_mun.columns:
+                    pop = pd.to_numeric(df_mun['POPULACAO_TOTAL'].iloc[0], errors='coerce')
+                else:
+                    pop = 0
+                if pd.isna(pop) or pop <= 0:
+                    pop = 0
+                intensidade = emissao_anual / massa_total_aterro if massa_total_aterro > 0 else 0
+                uf = df_mun['UF'].iloc[0] if 'UF' in df_mun.columns else 'N/A'
+                if mcf_medio >= 0.8:
+                    gestao_cat = "Sanitário"
+                elif mcf_medio >= 0.4:
+                    gestao_cat = "Controlado"
+                else:
+                    gestao_cat = "Lixão/Precário"
+                resultados.append({
+                    'MUNICÍPIO': mun,
+                    'UF': uf,
+                    'Massa_Aterro_Anual_t': massa_total_aterro,
+                    'MCF_Medio': mcf_medio,
+                    'DOC_Medio': doc_pond,
+                    'DOCF_Medio': docf_pond,
+                    'k_Medio': k_pond,
+                    'Emissao_Bruta_tCO2e_ano': emissao_anual,
+                    'Intensidade_tCO2e_por_t': intensidade,
+                    'Emissao_per_capita_kgCO2e': (emissao_anual * 1000) / pop if pop > 0 else 0,
+                    'Gestao_Predominante': gestao_cat
+                })
+        return pd.DataFrame(resultados)
+
+    with st.spinner("⏳ Processando dados de todos os municípios..."):
+        df_emissoes = calcular_emissoes_brutas_por_municipio(df_clean_diag)
+
+    # =========================================================
+    # CARDS DE ESTATÍSTICAS GERAIS (LOGO APÓS O PROCESSAMENTO)
+    # =========================================================
+    total_municipios_snis = df_clean_diag['MUNICÍPIO'].nunique()
+    total_municipios_aterro = len(df_emissoes)
+    total_com_emissao_zero = total_municipios_snis - total_municipios_aterro
+
+    st.markdown("---")
+    st.subheader("📊 Estatísticas Gerais da Base de Dados")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("🏙️ Total de municípios no SINISA", total_municipios_snis)
+    col2.metric("🗑️ Municípios que enviaram resíduos para aterro", total_municipios_aterro)
+    col3.metric("📭 Municípios sem envio para aterro (ou dados zerados)", total_com_emissao_zero)
+
+    if df_emissoes.empty:
+        st.warning("Nenhum município com resíduos enviados para aterro foi encontrado.")
+    else:
+        # =========================================================
+        # SEÇÃO 1: LIMIARES DO SBCE (10k e 25k) - CENÁRIO ATUAL (1 DEPÓSITO)
+        # =========================================================
+        st.markdown("---")
+        st.subheader("⚖️ Municípios acima dos Limiares do SBCE (10.000 e 25.000 tCO₂e/ano)")
+        st.markdown("""
+        A Lei do SBCE (15.042/2024) estabelece:
+        - **> 10.000 tCO₂e/ano**: Obrigação de MRV (Plano de Monitoramento e Relato).
+        - **> 25.000 tCO₂e/ano**: Obrigação plena (MRV + entrega de Cotas Brasileiras de Emissão - CBEs).
+        
+        Abaixo estão listados **todos os municípios** que, com base nos dados atuais do SINISA, já ultrapassariam o limiar de 10.000 tCO₂e/ano,
+        servindo como subsídio direto para a definição da **Etapa 2 (Resíduos)** do SBCE.
+        """)
+        
+        df_limiares = df_emissoes.copy()
+        df_limiares['Emissao_Bruta_tCO2e_ano'] = pd.to_numeric(df_limiares['Emissao_Bruta_tCO2e_ano'], errors='coerce').fillna(0)
+        
+        df_acima_10k = df_limiares[df_limiares['Emissao_Bruta_tCO2e_ano'] > 10000].copy()
+        df_acima_25k = df_limiares[df_limiares['Emissao_Bruta_tCO2e_ano'] > 25000].copy()
+        
+        col1, col2 = st.columns(2)
+        col1.metric("🔹 Acima de 10.000 tCO₂e (MRV)", f"{len(df_acima_10k)} municípios")
+        col2.metric("🔺 Acima de 25.000 tCO₂e (Obrigação Plena)", f"{len(df_acima_25k)} municípios")
+        
+        st.markdown("#### 📋 Todos os municípios com emissão > 10.000 tCO₂e/ano")
+        if not df_acima_10k.empty:
+            df_exibicao_10k = df_acima_10k[['MUNICÍPIO', 'UF', 'Gestao_Predominante', 'Emissao_Bruta_tCO2e_ano', 'Massa_Aterro_Anual_t']]
+            df_exibicao_10k = df_exibicao_10k.sort_values('Emissao_Bruta_tCO2e_ano', ascending=False)
+            st.dataframe(
+                df_exibicao_10k.style.format({
+                    'Emissao_Bruta_tCO2e_ano': lambda x: f"{x:,.0f}".replace(",", "."),
+                    'Massa_Aterro_Anual_t': lambda x: f"{x:,.0f}".replace(",", ".")
+                }),
+                use_container_width=True,
+                height=400
+            )
+        else:
+            st.info("ℹ️ Nenhum município ultrapassa 10.000 tCO₂e/ano.")
+        
+        st.markdown("#### 🔺 Destaque: municípios acima de 25.000 tCO₂e/ano (obrigação plena)")
+        if not df_acima_25k.empty:
+            df_exibicao_25k = df_acima_25k[['MUNICÍPIO', 'UF', 'Gestao_Predominante', 'Emissao_Bruta_tCO2e_ano', 'Massa_Aterro_Anual_t']]
+            df_exibicao_25k = df_exibicao_25k.sort_values('Emissao_Bruta_tCO2e_ano', ascending=False)
+            st.dataframe(
+                df_exibicao_25k.style.format({
+                    'Emissao_Bruta_tCO2e_ano': lambda x: f"{x:,.0f}".replace(",", "."),
+                    'Massa_Aterro_Anual_t': lambda x: f"{x:,.0f}".replace(",", ".")
+                }),
+                use_container_width=True,
+                height=300
+            )
+            st.caption(f"📌 Total de {len(df_acima_25k)} municípios que, se estivessem no SBCE hoje, já teriam que entregar CBEs.")
+        else:
+            st.info("ℹ️ Nenhum município ultrapassa 25.000 tCO₂e/ano.")
+        
+        # --- Filtro por estado ---
+        st.markdown("---")
+        estados = sorted(df_emissoes['UF'].unique())
+        estado_selecionado = st.selectbox("Filtrar por Estado:", ["Todos"] + estados)
+        if estado_selecionado != "Todos":
+            df_filtrado = df_emissoes[df_emissoes['UF'] == estado_selecionado]
+        else:
+            df_filtrado = df_emissoes
+
+        # --- Métricas gerais (após filtro) ---
+        total_emissoes = df_filtrado['Emissao_Bruta_tCO2e_ano'].sum()
+        total_massa = df_filtrado['Massa_Aterro_Anual_t'].sum()
+        media_intensidade = df_filtrado['Intensidade_tCO2e_por_t'].mean()
+        num_lixoes = df_filtrado[df_filtrado['Gestao_Predominante'] == 'Lixão/Precário'].shape[0]
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("🌍 Emissão Média Anual (20 anos)", f"{formatar_br(total_emissoes, auto_precision=False, casas_override=0)} tCO₂e")
+        col2.metric("⚖️ Massa em Aterro", f"{formatar_br(total_massa, auto_precision=False, casas_override=0)} t")
+        col3.metric("📊 Intensidade Média", f"{formatar_br(media_intensidade, auto_precision=False, casas_override=2)} tCO₂e/t")
+        col4.metric("⚠️ Municípios com Lixão", num_lixoes)
+
+        # --- Gráfico Pareto ---
+        st.markdown("---")
+        st.markdown("#### 📉 Curva de Concentração das Emissões de Metano (Pareto)")
+        st.markdown("""
+        **Como ler:** A linha azul mostra o percentual acumulado das emissões totais de metano (tCO₂e/ano) em função do percentual acumulado de municípios (ordenados do maior para o menor emissor). 
+        Quanto mais a curva se inclina para a esquerda, maior é a concentração. 
+        O ponto onde a linha cruza os 80% no eixo Y indica quantos % dos municípios são responsáveis por 80% de todas as emissões de metano do Brasil.
+        """)
+        df_emissoes_ordenado = df_filtrado.sort_values('Emissao_Bruta_tCO2e_ano', ascending=False).copy()
+        df_emissoes_ordenado['emissao_acumulada'] = df_emissoes_ordenado['Emissao_Bruta_tCO2e_ano'].cumsum()
+        total_emissoes = df_emissoes_ordenado['Emissao_Bruta_tCO2e_ano'].sum()
+        df_emissoes_ordenado['pct_acumulado_emissao'] = (df_emissoes_ordenado['emissao_acumulada'] / total_emissoes) * 100
+        df_ate_80_emissoes = df_emissoes_ordenado[df_emissoes_ordenado['pct_acumulado_emissao'] <= 80]
+        pct_municipios_80_emissoes = (len(df_ate_80_emissoes) / len(df_emissoes_ordenado)) * 100
+        df_ate_50_emissoes = df_emissoes_ordenado[df_emissoes_ordenado['pct_acumulado_emissao'] <= 50]
+        pct_municipios_50_emissoes = (len(df_ate_50_emissoes) / len(df_emissoes_ordenado)) * 100
+        fig_emissoes, ax_emissoes = plt.subplots(figsize=(12, 7))
+        df_emissoes_ordenado['pct_municipios_emissoes'] = (np.arange(len(df_emissoes_ordenado)) + 1) / len(df_emissoes_ordenado) * 100
+        ax_emissoes.plot(df_emissoes_ordenado['pct_municipios_emissoes'], df_emissoes_ordenado['pct_acumulado_emissao'], color='#1f77b4', linewidth=3, label='Concentração real das emissões')
+        ax_emissoes.axhline(y=80, color='red', linestyle='--', alpha=0.8, linewidth=1.5, label='80% das emissões totais')
+        ax_emissoes.axvline(x=pct_municipios_80_emissoes, color='red', linestyle='--', alpha=0.8, linewidth=1.5)
+        ax_emissoes.annotate(f'{pct_municipios_80_emissoes:.1f}% dos municípios\nconcentram 80% das emissões', xy=(pct_municipios_80_emissoes, 80), xytext=(pct_municipios_80_emissoes + 15, 60), arrowprops=dict(arrowstyle='->', color='red', lw=1.5), fontsize=11, color='red', ha='left', bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='red', alpha=0.9))
+        ax_emissoes.annotate(f'{pct_municipios_50_emissoes:.1f}% dos municípios\nconcentram 50% das emissões', xy=(pct_municipios_50_emissoes, 50), xytext=(pct_municipios_50_emissoes + 15, 35), arrowprops=dict(arrowstyle='->', color='orange', lw=1.5), fontsize=10, color='orange', ha='left', bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='orange', alpha=0.9))
+        ax_emissoes.plot([0, 100], [0, 100], color='gray', linestyle=':', alpha=0.5, label='Igualdade perfeita (referência)')
+        ax_emissoes.set_xlabel('Percentual acumulado de municípios (%)', fontsize=12)
+        ax_emissoes.set_ylabel('Percentual acumulado das emissões (%)', fontsize=12)
+        ax_emissoes.set_title(f'Concentração das Emissões de Metano – Brasil ({ano_selecionado})', fontsize=14)
+        ax_emissoes.grid(True, linestyle=':', alpha=0.4)
+        ax_emissoes.legend(loc='lower right')
+        ax_emissoes.set_xlim(0, 100)
+        ax_emissoes.set_ylim(0, 100)
+        ax_emissoes.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'{x:.0f}%'))
+        ax_emissoes.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f'{x:.0f}%'))
+        plt.tight_layout()
+        st.pyplot(fig_emissoes)
+        plt.close(fig_emissoes)
+        st.caption(f"""
+        📌 **Interpretação:** A curva demonstra que os **{formatar_br(pct_municipios_80_emissoes, auto_precision=False, casas_override=1)}% maiores emissores** concentram **80% de todas as emissões de metano do Brasil**.
+        Comparando com a concentração da massa, este número pode ser maior ou menor, dependendo do MCF e da composição dos resíduos (DOC/k) de cada município.
+        """)
+
+        # --- Gráfico Top 20 emissores absolutos ---
+        st.markdown("---")
+        st.subheader("🏆 Top 20 Municípios que mais Emitem Metano (emissão absoluta)")
+        top20 = df_filtrado.nlargest(20, 'Emissao_Bruta_tCO2e_ano')
+        top20 = top20.sort_values('Emissao_Bruta_tCO2e_ano', ascending=False)
+        cor_map = {'Sanitário': '#2ecc71', 'Controlado': '#f39c12', 'Lixão/Precário': '#e74c3c'}
+        top20['Cor'] = top20['Gestao_Predominante'].map(cor_map)
+        fig, ax = plt.subplots(figsize=(12, 8))
+        ax.barh(top20['MUNICÍPIO'] + " (" + top20['UF'] + ")", top20['Emissao_Bruta_tCO2e_ano'], color=top20['Cor'])
+        ax.set_xlabel('Emissão Média Anual (tCO₂e / ano)')
+        ax.set_title('Ranking de Emissões de Metano por Município')
+        ax.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: formatar_br(x, auto_precision=False, casas_override=2)))
+        from matplotlib.patches import Patch
+        legend_elements = [Patch(facecolor='#2ecc71', label='Aterro Sanitário (MCF≥0.8)'), Patch(facecolor='#f39c12', label='Aterro Controlado (MCF 0.4-0.8)'), Patch(facecolor='#e74c3c', label='Lixão/Precário (MCF<0.4)')]
+        ax.legend(handles=legend_elements, loc='lower right')
+        ax.invert_yaxis()
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+        st.caption("🔴 Vermelho = Lixões ou aterros precários | 🟡 Amarelo = Controlado | 🟢 Verde = Sanitário (bem gerenciado)")
+
+        # --- Gráfico Top 20 per capita ---
+        st.markdown("---")
+        st.subheader("🏆 Top 20 Municípios com Maior Emissão de Metano por Habitante")
+        st.markdown("""
+        **Este ranking mostra a emissão de metano por habitante (kgCO₂e/hab/ano).**  
+        Municípios com alta emissão per capita geralmente têm:
+        - **Grande volume de resíduos** em relação à população (geração excessiva);
+        - **Destinação inadequada** (lixões ou aterros controlados, com MCF baixo);
+        - **Composição orgânica elevada** (alta fração de alimentos e podas).
+        
+        **Interpretação:** Uma cidade pequena pode aparecer no topo se sua gestão de resíduos for ineficiente. 
+        Já grandes cidades podem ter emissão per capita baixa se tiverem aterros sanitários bem gerenciados 
+        (MCF alto, captura de biogás). Este indicador ajuda a identificar **municípios onde a gestão per capita é crítica**,
+        independentemente do tamanho populacional.
+        """)
+        df_percapita = df_filtrado[df_filtrado['Emissao_per_capita_kgCO2e'] > 0].copy()
+        if df_percapita.empty:
+            st.info("ℹ️ Não há dados de população disponível para calcular a emissão per capita.")
+        else:
+            top20_percapita = df_percapita.nlargest(20, 'Emissao_per_capita_kgCO2e')
+            top20_percapita = top20_percapita.sort_values('Emissao_per_capita_kgCO2e', ascending=False)
+            top20_percapita['Cor'] = top20_percapita['Gestao_Predominante'].map(cor_map)
+            fig2, ax2 = plt.subplots(figsize=(12, 8))
+            ax2.barh(top20_percapita['MUNICÍPIO'] + " (" + top20_percapita['UF'] + ")", top20_percapita['Emissao_per_capita_kgCO2e'], color=top20_percapita['Cor'])
+            ax2.set_xlabel('Emissão per capita (kgCO₂e / habitante / ano)')
+            ax2.set_title('Ranking de Emissões de Metano por Habitante')
+            ax2.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: formatar_br(x, auto_precision=False, casas_override=2)))
+            ax2.legend(handles=legend_elements, loc='lower right')
+            ax2.invert_yaxis()
+            plt.tight_layout()
+            st.pyplot(fig2)
+            plt.close(fig2)
+            st.caption("🔴 Vermelho = Lixões ou aterros precários | 🟡 Amarelo = Controlado | 🟢 Verde = Sanitário (bem gerenciado)")
+
+        # --- Matriz de decisão ---
+        st.markdown("---")
+        st.subheader("📊 Matriz de Decisão: Massa x Intensidade")
+        st.markdown("""
+        **Como interpretar:**
+        - **🚨 CRÍTICO (Alta Massa + Alta Intensidade)**: Prioridade máxima para intervenção.
+        - **⚠️ INEFICIENTE (Baixa Massa + Alta Intensidade)**: Pequenos lixões que precisam ser fechados.
+        - **✅ REFERÊNCIA (Alta Massa + Baixa Intensidade)**: Grandes cidades com gestão adequada.
+        - **📉 BAIXA PRIORIDADE (Baixa Massa + Baixa Intensidade)**: Pequenas cidades com gestão razoável.
+        """)
+        med_massa = df_filtrado['Massa_Aterro_Anual_t'].median()
+        med_intensidade = df_filtrado['Intensidade_tCO2e_por_t'].median()
+        fig3, ax3 = plt.subplots(figsize=(10, 8))
+        def categorizar(row):
+            if row['Massa_Aterro_Anual_t'] >= med_massa and row['Intensidade_tCO2e_por_t'] >= med_intensidade:
+                return 'Crítico'
+            elif row['Massa_Aterro_Anual_t'] < med_massa and row['Intensidade_tCO2e_por_t'] >= med_intensidade:
+                return 'Ineficiente'
+            elif row['Massa_Aterro_Anual_t'] >= med_massa and row['Intensidade_tCO2e_por_t'] < med_intensidade:
+                return 'Referência'
+            else:
+                return 'Baixa Prioridade'
+        df_filtrado['Categoria'] = df_filtrado.apply(categorizar, axis=1)
+        cores_cat = {'Crítico': '#e74c3c', 'Ineficiente': '#f39c12', 'Referência': '#2ecc71', 'Baixa Prioridade': '#3498db'}
+        for cat in df_filtrado['Categoria'].unique():
+            subset = df_filtrado[df_filtrado['Categoria'] == cat]
+            ax3.scatter(subset['Massa_Aterro_Anual_t'], subset['Intensidade_tCO2e_por_t'], label=cat, color=cores_cat[cat], alpha=0.7, s=50)
+        ax3.axvline(x=med_massa, color='gray', linestyle='--', alpha=0.5)
+        ax3.axhline(y=med_intensidade, color='gray', linestyle='--', alpha=0.5)
+        ax3.set_xlabel('Massa enviada ao Aterro (t/ano)')
+        ax3.set_ylabel('Intensidade de Emissão (tCO₂e / t)')
+        ax3.set_title('Matriz de Priorização de Municípios')
+        ax3.legend()
+        ax3.grid(True, linestyle=':', alpha=0.3)
+        ax3.xaxis.set_major_formatter(FuncFormatter(formatar_eixo_abreviado))
+        plt.tight_layout()
+        st.pyplot(fig3)
+        plt.close(fig3)
+
+        # --- Tabela detalhada ---
+        st.markdown("---")
+        st.subheader("📋 Detalhamento por Município (Clique no cabeçalho para ordenar)")
+        tabela_diagnostico = df_filtrado.copy()
+        tabela_diagnostico['Emissao_Bruta_tCO2e_ano'] = tabela_diagnostico['Emissao_Bruta_tCO2e_ano'].apply(lambda x: formatar_numero_br(x, 0))
+        tabela_diagnostico['Massa_Aterro_Anual_t'] = tabela_diagnostico['Massa_Aterro_Anual_t'].apply(lambda x: formatar_numero_br(x, 0))
+        tabela_diagnostico['Intensidade_tCO2e_por_t'] = tabela_diagnostico['Intensidade_tCO2e_por_t'].apply(lambda x: formatar_numero_br(x, 2))
+        tabela_diagnostico['Emissao_per_capita_kgCO2e'] = tabela_diagnostico['Emissao_per_capita_kgCO2e'].apply(lambda x: formatar_numero_br(x, 2))
+        tabela_diagnostico['MCF_Medio'] = tabela_diagnostico['MCF_Medio'].apply(lambda x: formatar_numero_br(x, 2))
+        tabela_diagnostico['DOC_Medio'] = tabela_diagnostico['DOC_Medio'].apply(lambda x: formatar_numero_br(x, 3))
+        tabela_diagnostico = tabela_diagnostico[[
+            'MUNICÍPIO', 'UF', 'Gestao_Predominante', 'Massa_Aterro_Anual_t',
+            'MCF_Medio', 'DOC_Medio', 'Intensidade_tCO2e_por_t',
+            'Emissao_Bruta_tCO2e_ano', 'Emissao_per_capita_kgCO2e'
+        ]]
+        tabela_diagnostico = tabela_diagnostico.rename(columns={
+            'MUNICÍPIO': 'Município',
+            'UF': 'UF',
+            'Gestao_Predominante': 'Gestão',
+            'Massa_Aterro_Anual_t': 'Massa (t/ano)',
+            'MCF_Medio': 'MCF médio',
+            'DOC_Medio': 'DOC médio',
+            'Intensidade_tCO2e_por_t': 'Intensidade (tCO₂e/t)',
+            'Emissao_Bruta_tCO2e_ano': 'Emissão Média Anual (tCO₂e/ano)',
+            'Emissao_per_capita_kgCO2e': 'Emissão per capita (kgCO₂e)'
+        })
+        st.dataframe(tabela_diagnostico, use_container_width=True, height=500)
+
+        # =========================================================
+        # SEÇÃO 2: PROJEÇÃO CONTÍNUA DE 20 ANOS
+        # =========================================================
+        st.markdown("---")
+        st.subheader("📈 Projeção Contínua de Emissões (20 anos com depósitos anuais)")
+        st.markdown("""
+        **Cenário:** E se o município continuar depositando a **mesma quantidade** de resíduos no aterro **todos os anos**?
+        
+        - A curva azul mostra a **emissão acumulada** ao longo do tempo.
+        - A curva laranja mostra a **emissão anual** (que cresce nos primeiros anos até se estabilizar).
+        - Este modelo é mais realista para planejamento de longo prazo, pois reflete o **passivo crescente** do aterro.
+        """)
+        
+        opcoes_proj_cont = ["BRASIL – Todos os municípios"] + sorted(df_emissoes['MUNICÍPIO'].unique())
+        municipio_proj_cont = st.selectbox(
+            "Selecione o município (ou Brasil) para a projeção contínua:",
+            opcoes_proj_cont,
+            key="proj_cont_municipio"
+        )
+        
+        if municipio_proj_cont:
+            if municipio_proj_cont == "BRASIL – Todos os municípios":
+                df_mun_proj_cont = df_emissoes.copy()
+                massa_anual = df_mun_proj_cont['Massa_Aterro_Anual_t'].sum()
+                mcf_medio = (df_mun_proj_cont['Massa_Aterro_Anual_t'] * df_mun_proj_cont['MCF_Medio']).sum() / massa_anual if massa_anual > 0 else 0.8
+                doc_medio = (df_mun_proj_cont['Massa_Aterro_Anual_t'] * df_mun_proj_cont['DOC_Medio']).sum() / massa_anual if massa_anual > 0 else 0.15
+                docf_medio = (df_mun_proj_cont['Massa_Aterro_Anual_t'] * df_mun_proj_cont['DOCF_Medio']).sum() / massa_anual if massa_anual > 0 else 0.5
+                k_medio = (df_mun_proj_cont['Massa_Aterro_Anual_t'] * df_mun_proj_cont['k_Medio']).sum() / massa_anual if massa_anual > 0 else 0.07
+                titulo_proj_cont = "Brasil"
+            else:
+                df_mun_proj_cont = df_emissoes[df_emissoes['MUNICÍPIO'] == municipio_proj_cont]
+                massa_anual = df_mun_proj_cont['Massa_Aterro_Anual_t'].sum()
+                mcf_medio = df_mun_proj_cont['MCF_Medio'].iloc[0]
+                doc_medio = df_mun_proj_cont['DOC_Medio'].iloc[0]
+                docf_medio = df_mun_proj_cont['DOCF_Medio'].iloc[0]
+                k_medio = df_mun_proj_cont['k_Medio'].iloc[0]
+                titulo_proj_cont = municipio_proj_cont
+            
+            st.info(f"📌 **Massa anual considerada:** {formatar_br(massa_anual, auto_precision=False, casas_override=0)} t ({formatar_br(massa_anual/1000, auto_precision=False, casas_override=0)} kt) — MCF médio: {mcf_medio:.2f}, k médio: {k_medio:.4f}")
+            
+            if massa_anual > 0 and mcf_medio > 0:
+                df_proj_cont = projetar_emissao_continua(massa_anual, mcf_medio, k_medio, doc_medio, docf_medio)
+                
+                fig_cont, ax_cont = plt.subplots(figsize=(12, 6))
+                ax_cont.plot(df_proj_cont['Ano'], df_proj_cont['Emissao_Acumulada'], 'o-', color='blue', linewidth=2, label='Emissão Acumulada (tCO₂e)')
+                ax_cont.plot(df_proj_cont['Ano'], df_proj_cont['Emissao_Anual'], 's-', color='orange', linewidth=2, label='Emissão Anual (tCO₂e)')
+                ax_cont.set_xlabel('Ano')
+                ax_cont.set_ylabel('Emissões (tCO₂e)')
+                ax_cont.set_title(f'Projeção Contínua de 20 anos – {titulo_proj_cont}')
+                ax_cont.legend()
+                ax_cont.grid(True, linestyle='--', alpha=0.3)
+                ax_cont.yaxis.set_major_formatter(FuncFormatter(formatar_eixo_abreviado))
+                valor_final = df_proj_cont['Emissao_Acumulada'].iloc[-1]
+                ax_cont.annotate(f'Total acumulado: {formatar_br(valor_final, auto_precision=False, casas_override=0)} tCO₂e',
+                                xy=(df_proj_cont['Ano'].iloc[-1], valor_final),
+                                xytext=(df_proj_cont['Ano'].iloc[-1] - 2, valor_final * 0.8),
+                                arrowprops=dict(arrowstyle='->', color='gray'),
+                                fontsize=10, color='darkblue')
+                plt.tight_layout()
+                st.pyplot(fig_cont)
+                plt.close(fig_cont)
+                
+                with st.expander("📋 Ver dados anuais da projeção contínua"):
+                    st.dataframe(
+                        df_proj_cont.style.format({
+                            'Emissao_Anual': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
+                            'Emissao_Acumulada': lambda x: formatar_br(x, auto_precision=False, casas_override=0)
+                        }),
+                        use_container_width=True
+                    )
+                    st.caption(f"📌 Massa depositada anualmente: {formatar_br(massa_anual, auto_precision=False, casas_override=0)} t | MCF: {mcf_medio:.2f} | k: {k_medio:.3f} | DOC: {doc_medio:.3f}")
+                
+                st.markdown("**🔍 Comparação com o cenário atual (apenas 1 ano de depósito):**")
+                emissao_media_anual = df_mun_proj_cont['Emissao_Bruta_tCO2e_ano'].mean() if municipio_proj_cont != "BRASIL – Todos os municípios" else df_mun_proj_cont['Emissao_Bruta_tCO2e_ano'].sum()
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    valor_t = emissao_media_anual
+                    valor_kt = valor_t / 1000
+                    st.metric("📊 Cenário atual (média de 1 depósito)", f"{formatar_br(valor_t, auto_precision=False, casas_override=0)} tCO₂e/ano")
+                    st.caption(f"= {formatar_br(valor_kt, auto_precision=False, casas_override=2)} ktCO₂e/ano  —  limiares: 10 kt (MRV) e 25 kt (obrigação plena)")
+                with col2:
+                    emissao_ano_final = df_proj_cont['Emissao_Anual'].iloc[-1]
+                    valor_t2 = emissao_ano_final
+                    valor_kt2 = valor_t2 / 1000
+                    st.metric("📈 Cenário contínuo (depósito anual repetido)", f"{formatar_br(valor_t2, auto_precision=False, casas_override=0)} tCO₂e/ano")
+                    st.caption(f"= {formatar_br(valor_kt2, auto_precision=False, casas_override=2)} ktCO₂e/ano  —  no ano {df_proj_cont['Ano'].iloc[-1]} com depósitos anuais repetidos")
+                
+                st.info(f"💡 **Interpretação:** Se o município continuar depositando **{formatar_br(massa_anual, auto_precision=False, casas_override=0)} t/ano** no aterro, a emissão anual total chegará a **{formatar_br(valor_t2, auto_precision=False, casas_override=0)} tCO₂e/ano ({formatar_br(valor_kt2, auto_precision=False, casas_override=2)} ktCO₂e/ano)** em 20 anos, muito superior à média de **{formatar_br(valor_t, auto_precision=False, casas_override=0)} tCO₂e/ano ({formatar_br(valor_kt, auto_precision=False, casas_override=2)} ktCO₂e/ano)** calculada para um único depósito. Isso demonstra o **efeito multiplicador** do passivo acumulado e a importância de desviar resíduos para compostagem desde agora.")
+            else:
+                st.warning("Dados insuficientes para a projeção contínua (massa ou MCF zero).")
+
+        # =========================================================
+        # SEÇÃO 3: LIMIARES DO SBCE – CENÁRIO CONTÍNUO
+        # =========================================================
+        st.markdown("---")
+        st.subheader("⚖️ Municípios acima dos Limiares do SBCE – **Cenário Contínuo** (depósitos anuais repetidos)")
+        st.markdown("""
+        **Este cenário considera que o município continuará depositando a MESMA quantidade de resíduos no aterro TODOS OS ANOS.**
+        
+        A emissão calculada é a **emissão anual no 20º ano** de operação contínua, que reflete o **passivo acumulado** de todas as camadas de resíduos depositadas ao longo do tempo.
+        
+        Este é o cenário mais realista para o planejamento de longo prazo e mostra que **muitos municípios já estariam acima dos limiares legais** se considerarmos o efeito multiplicador do acúmulo de resíduos.
+        
+        - **> 10.000 tCO₂e/ano (emissão no ano 20)**: Obrigação de MRV.
+        - **> 25.000 tCO₂e/ano (emissão no ano 20)**: Obrigação plena.
+        """)
+        
+        df_continua = df_emissoes.copy()
+        
+        def calcular_emissao_continua_ano_n(massa_anual, mcf, doc, docf, k, n=20):
+            if massa_anual <= 0 or mcf <= 0:
+                return 0.0
+            ch4_pot_kg = (doc * docf * mcf * F_METHANE_FRACTION * (16/12) *
+                          (1 - OX_SOIL_COVER) * PHI_APPLICATION_B)
+            fator_tco2_por_ton = ch4_pot_kg * GWP_CH4
+            emissao = massa_anual * fator_tco2_por_ton * (1 - np.exp(-k * n))
+            return emissao
+        
+        df_continua['Emissao_Continua_Ano20'] = df_continua.apply(
+            lambda row: calcular_emissao_continua_ano_n(
+                row['Massa_Aterro_Anual_t'],
+                row['MCF_Medio'],
+                row['DOC_Medio'],
+                row['DOCF_Medio'],
+                row['k_Medio'],
+                n=20
+            ),
+            axis=1
+        )
+        
+        df_acima_10k_cont = df_continua[df_continua['Emissao_Continua_Ano20'] > 10000].copy()
+        df_acima_25k_cont = df_continua[df_continua['Emissao_Continua_Ano20'] > 25000].copy()
+        
+        col1, col2 = st.columns(2)
+        col1.metric("🔹 Acima de 10.000 tCO₂e (MRV) – Cenário Contínuo", f"{len(df_acima_10k_cont)} municípios")
+        col2.metric("🔺 Acima de 25.000 tCO₂e (Obrigação Plena) – Cenário Contínuo", f"{len(df_acima_25k_cont)} municípios")
+        
+        st.markdown("#### 📋 Todos os municípios com emissão > 10.000 tCO₂e/ano (Cenário Contínuo – ano 20)")
+        if not df_acima_10k_cont.empty:
+            df_exibicao_10k_cont = df_acima_10k_cont[['MUNICÍPIO', 'UF', 'Gestao_Predominante', 'Emissao_Continua_Ano20', 'Massa_Aterro_Anual_t']]
+            df_exibicao_10k_cont = df_exibicao_10k_cont.sort_values('Emissao_Continua_Ano20', ascending=False)
+            st.dataframe(
+                df_exibicao_10k_cont.style.format({
+                    'Emissao_Continua_Ano20': lambda x: f"{x:,.0f}".replace(",", "."),
+                    'Massa_Aterro_Anual_t': lambda x: f"{x:,.0f}".replace(",", ".")
+                }),
+                use_container_width=True,
+                height=400
+            )
+            st.caption("📌 Valores em tCO₂e/ano no 20º ano de operação contínua (depósitos anuais repetidos).")
+        else:
+            st.info("ℹ️ Nenhum município ultrapassa 10.000 tCO₂e/ano no cenário contínuo.")
+        
+        st.markdown("#### 🔺 Destaque: municípios acima de 25.000 tCO₂e/ano (obrigação plena) – Cenário Contínuo")
+        if not df_acima_25k_cont.empty:
+            df_exibicao_25k_cont = df_acima_25k_cont[['MUNICÍPIO', 'UF', 'Gestao_Predominante', 'Emissao_Continua_Ano20', 'Massa_Aterro_Anual_t']]
+            df_exibicao_25k_cont = df_exibicao_25k_cont.sort_values('Emissao_Continua_Ano20', ascending=False)
+            st.dataframe(
+                df_exibicao_25k_cont.style.format({
+                    'Emissao_Continua_Ano20': lambda x: f"{x:,.0f}".replace(",", "."),
+                    'Massa_Aterro_Anual_t': lambda x: f"{x:,.0f}".replace(",", ".")
+                }),
+                use_container_width=True,
+                height=300
+            )
+            st.caption(f"📌 Total de {len(df_acima_25k_cont)} municípios que, no cenário contínuo, já teriam que entregar CBEs no 20º ano.")
+        else:
+            st.info("ℹ️ Nenhum município ultrapassa 25.000 tCO₂e/ano no cenário contínuo.")
+        
+        st.markdown("#### 📊 Comparação entre cenários")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Cenário atual (1 depósito)", f"{len(df_acima_10k)} municípios > 10k")
+        with col2:
+            st.metric("Cenário contínuo (ano 20)", f"{len(df_acima_10k_cont)} municípios > 10k")
+        with col3:
+            diferenca = len(df_acima_10k_cont) - len(df_acima_10k)
+            st.metric("Diferença", f"+{diferenca}" if diferenca > 0 else f"{diferenca}", delta=f"{diferenca}" if diferenca != 0 else None)
+        
+        st.caption("""
+        💡 **Interpretação:** O cenário contínuo mostra que, se o município continuar depositando a mesma quantidade de resíduos ano após ano, o passivo acumulado fará com que **muitos mais municípios ultrapassem os limiares legais** no 20º ano. 
+        Isso reforça a urgência de políticas de desvio de resíduos (compostagem, reciclagem, captura de biogás) desde agora.
+        """)
+
+        # =========================================================
+        # LEGENDA FINAL
+        # =========================================================
+        st.markdown("---")
+        st.caption("""
+        **Metodologia:** UNFCCC A6.4-AMT-003 (Application B) – Baseline de aterro.  
+        - **Emissão Média Anual**: média aritmética do total de emissões de metano (CH₄) projetado para os 20 anos seguintes ao depósito do resíduo do ano de referência (modelo anual, Equação 1).  
+        - **Emissão per capita**: emissão média anual dividida pela população do município (kgCO₂e/hab/ano).  
+        - **Intensidade**: emissão média anual por tonelada de resíduo depositado. Quanto menor, melhor a gestão do aterro.  
+        - **MCF**: 1,0 (Sanitário), 0,4-0,8 (Controlado), <0,4 (Lixão/Precário) – conforme Tabela 8 da norma.
+        - DOC/k calculados dinamicamente pela caracterização do resíduo no SINISA (colunas GTR1501 a GTR1507).
+        - **Cenário Contínuo**: considera depósitos anuais repetidos, calculando a emissão no 20º ano de operação.
+        """)
+
+#B11
+
+# =========================================================
+# AUTORIA E USO
+# =========================================================
+st.markdown("---")
+st.subheader("📬 Autoria e uso")
+st.markdown("""
+Este aplicativo foi desenvolvido para apoiar a gestão de resíduos sólidos, 
+mapear oportunidades de compostagem e auxiliar municípios a se prepararem para o mercado de créditos de carbono.
+
+**Potencial de uso:**  
+- Mapeamento de municípios com coleta seletiva de orgânicos.  
+- Estimativa de emissões evitadas com compostagem.  
+- Projeção de receitas com créditos de carbono (metodologia UNFCCC).  
+- Identificação de prioridades para expansão da coleta seletiva.
+""")
+
+st.markdown("---")
+st.caption("""
+**Composta.IA** | Ferramenta de apoio à gestão de resíduos sólidos e créditos de carbono  
+Dados: SINISA (2023/2024) | Metodologia: UNFCCC A6.4-AMT-003 (2025) + TOOL13 (AMS-III.F) | IPCC AR5 (GWP-100)
+Fração orgânica de referência: 50% (Pimentel e Capanema, 2025).
+""")
