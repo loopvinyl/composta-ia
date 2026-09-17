@@ -1252,6 +1252,19 @@ with tab_ia:
     Agrupamos municípios com perfis semelhantes de geração e destinação de resíduos usando **K-Means**.
     Isso ajuda a identificar quais municípios são prioritários para políticas de compostagem.
     """)
+
+    # =========================================================
+    # CORREÇÃO: o slider de número de clusters fica FORA do botão,
+    # para que o usuário escolha o valor ANTES de executar.
+    # =========================================================
+    n_clusters = st.slider(
+        "Número de clusters:",
+        min_value=2,
+        max_value=6,
+        value=4,
+        key="n_clusters_slider"
+    )
+
     if st.button("🔍 Executar Clusterização"):
         with st.spinner("Agrupando municípios por similaridade..."):
             try:
@@ -1267,7 +1280,7 @@ with tab_ia:
                 if X.empty:
                     st.warning("Dados insuficientes para clusterização.")
                 else:
-                    n_clusters = st.slider("Número de clusters:", 2, 6, 4)
+                    # n_clusters já foi escolhido pelo usuário ANTES do clique
                     labels, kmeans, scaler = clusterizar_municipios(X, n_clusters=n_clusters)
                     df_cluster['Cluster'] = labels
                     X_pca, pca = aplicar_pca(X)
@@ -1296,9 +1309,15 @@ with tab_ia:
                             st.dataframe(municipios_cluster.style.format({
                                 'Massa_Total': '{:.0f}'
                             }), use_container_width=True)
+            except ImportError as e:
+                st.error(f"❌ Dependência ausente: {e}")
+                st.info("Verifique se o `requirements.txt` está completo e faça reboot do app.")
+            except ValueError as e:
+                st.error(f"❌ Erro nos dados: {e}")
             except Exception as e:
-                st.error(f"Erro na clusterização: {e}")
-                st.info("ℹ️ Verifique se o arquivo `utils/ia_clustering.py` está atualizado.")
+                st.error(f"❌ Erro na clusterização: {type(e).__name__}: {e}")
+                with st.expander("Ver traceback completo"):
+                    st.exception(e)
 
     # --- Previsão per capita ---
     st.markdown("---")
