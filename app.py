@@ -962,7 +962,7 @@ with tab_tradicional:
         st.header(f"🏆 Mapeamento de Coleta Seletiva de Orgânicos ({ano_selecionado})")
         st.markdown("""
         Lista de todos os municípios que declararam possuir **coleta seletiva de resíduos orgânicos**,
-        com a massa coletada e a **receita potencial anual com créditos de carbono** (compostagem - UNFCCC).
+        com a massa coletada e o destino declarado no SINISA.
         """)
         with st.spinner("Consultando dados..."):
             mask_organicos = df_clean[COL_TIPO_COLETA].astype(str).str.contains(
@@ -999,14 +999,6 @@ with tab_tradicional:
                         mcf_medio = (grupo_aterro["MASSA_FLOAT_RANK"] * grupo_aterro["MCF"]).sum() / massa_aterro_local
                     else:
                         mcf_medio = 0.8
-                    receita_anual = 0.0
-                    if massa_aterro_local > 0:
-                        df_mun_caract = df_clean[df_clean[COL_MUNICIPIO] == mun]
-                        doc_pond, docf_pond, k_pond = calcular_doc_k_ponderado(df_mun_caract)
-                        co2eq_aterro = calcular_co2eq_aterro_20anos(massa_aterro_local, mcf_medio, k_pond, doc_pond, docf_pond)
-                        co2eq_compostagem = calcular_co2eq_compostagem_UNFCCC(massa_aterro_local)
-                        evitado_20anos = co2eq_aterro - co2eq_compostagem
-                        receita_anual = (evitado_20anos / ANOS_PROJECAO) * preco * cambio
                     massa_total_municipio = df_clean[df_clean[COL_MUNICIPIO] == mun]['MASSA_COLETADA'].sum()
                     pct_org = (massa_total_local / massa_total_municipio) * 100 if massa_total_municipio > 0 else 0
                     mapeamento.append({
@@ -1015,16 +1007,14 @@ with tab_tradicional:
                         "Massa Total (t/ano)": massa_total_local,
                         "Massa para Aterro (t/ano)": massa_aterro_local,
                         "% da massa total": pct_org,
-                        "Tipo(s) de Unidade (SINISA)": destinos,
-                        "Receita Potencial (R$/ano)": receita_anual
+                        "Tipo(s) de Unidade (SINISA)": destinos
                     })
                 df_mapeamento = pd.DataFrame(mapeamento).sort_values("Massa Total (t/ano)", ascending=False)
                 st.dataframe(
                     df_mapeamento.style.format({
                         "Massa Total (t/ano)": lambda x: formatar_numero_br(x, None),
                         "Massa para Aterro (t/ano)": lambda x: formatar_numero_br(x, None),
-                        "% da massa total": lambda x: formatar_br(x, auto_precision=False, casas_override=2) + '%',
-                        "Receita Potencial (R$/ano)": lambda x: f"R$ {formatar_numero_br(x, None)}"
+                        "% da massa total": lambda x: formatar_br(x, auto_precision=False, casas_override=2) + '%'
                     }),
                     use_container_width=True,
                     height=600
@@ -1035,7 +1025,6 @@ with tab_tradicional:
                 - **DOC e k**: calculados dinamicamente a partir da caracterização dos resíduos do SINISA (quando disponível).
                 - **MCF**: ponderado pelos diferentes destinos (aterro sanitário, controlado, lixão) de acordo com a Tabela 8 do anexo.
                 - **% da massa total**: percentual da massa total de RSU do município que é composta por orgânicos da coleta seletiva.
-                - Receita potencial anual considerando o preço atual do carbono.
                 """)
 
     st.markdown("---")
