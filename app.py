@@ -1629,17 +1629,40 @@ with tab_ia:
             if pct_media <= 0.01 or np.isnan(pct_media):
                 pct_media = 2.0
                 st.warning("⚠️ A média calculada foi muito baixa ou nula. Usando valor de fallback de 2,0% para o cenário otimista.")
+
+            # Textos das opções do rádio (rótulos longos e explicativos)
+            OPCAO_REALISTA = (
+                "📊 Realista (1º quartil): Se todos os municípios sem coleta seletiva "
+                "atingirem o nível dos 25% piores que já têm, quanto ganhamos?"
+            )
+            OPCAO_OTIMISTA = (
+                "📈 Otimista (média): Se todos os municípios sem coleta seletiva "
+                "atingirem o nível médio dos que já têm, quanto ganhamos?"
+            )
+
             tipo_cenario = st.radio(
                 "Escolha a meta de cobertura para os novos municípios:",
-                options=["Realista (1º quartil)", "Otimista (média)"],
-                index=0
+                options=[OPCAO_REALISTA, OPCAO_OTIMISTA],
+                index=0,
+                help=(
+                    "Define qual percentual de cobertura da coleta seletiva de orgânicos "
+                    "será aplicado sobre a massa total dos municípios que AINDA NÃO possuem "
+                    "essa coleta. O percentual é calculado a partir dos municípios que JÁ possuem.\n\n"
+                    "• Realista (1º quartil): meta conservadora, baseada no que os 25% municípios "
+                    "com menor desempenho já alcançam.\n\n"
+                    "• Otimista (média): meta mais ambiciosa, baseada na média dos municípios "
+                    "que já possuem coleta seletiva."
+                )
             )
-            if tipo_cenario == "Realista (1º quartil)":
+
+            # Comparação continua robusta (compara por identidade da string completa)
+            if tipo_cenario == OPCAO_REALISTA:
                 meta_cobertura = pct_25
                 rotulo = f"1º quartil ({formatar_br(pct_25, auto_precision=False, casas_override=2)}%)"
             else:
                 meta_cobertura = pct_media
                 rotulo = f"média ({formatar_br(pct_media, auto_precision=False, casas_override=2)}%)"
+
             st.info(f"**Meta de cobertura escolhida:** {rotulo}")
             massa_adicional_coletada = massa_sem_seletiva * (meta_cobertura / 100)
             massa_adicional_compost = massa_adicional_coletada * (pct_compost_real / 100)
