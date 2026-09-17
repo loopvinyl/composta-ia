@@ -634,6 +634,14 @@ tab_tradicional, tab_ia, tab_diagnostico = st.tabs([
 with tab_tradicional:
     st.subheader(f"🇧🇷 Brasil — Síntese Nacional de RSU ({ano_selecionado})" if municipio == municipios[0] else f"📍 {municipio} - Ano {ano_selecionado}")
 
+    # >>> ADIÇÃO: checkbox único no topo desta aba (vale para toda a aba) <<<
+    ocultar_transbordo_tradicional = st.checkbox(
+        "Ocultar transbordos (nesta aba)",
+        value=False,
+        key="ocultar_transbordo_tradicional",
+        help="Exclui rotas cujo destino é 'Transbordo' em todas as análises desta aba."
+    )
+
     if municipio == municipios[0]:
         st.markdown("---")
         st.markdown("### 📊 Panorama Nacional de Geração de Resíduos")
@@ -676,15 +684,9 @@ with tab_tradicional:
         """)
         st.markdown("---")
 
-        ocultar_transbordo_panorama = st.checkbox(
-            "Ocultar transbordos no panorama",
-            value=False,
-            key="ocultar_transbordo_panorama",
-            help="Exclui rotas cujo destino é 'Transbordo' para evitar dupla contagem e alinhar com a visão consolidada."
-        )
         with st.spinner("Calculando estatísticas nacionais..."):
             df_panorama = df_clean.copy()
-            if ocultar_transbordo_panorama:
+            if ocultar_transbordo_tradicional:
                 df_panorama = df_panorama[~df_panorama[COL_DESTINO].apply(
                     lambda x: "TRANSBORDO" in normalizar_texto(x) if pd.notna(x) else False
                 )]
@@ -826,7 +828,7 @@ with tab_tradicional:
                 st.pyplot(fig_conc)
                 plt.close(fig_conc)
 
-                legenda_extra = " (transbordos ocultados)" if ocultar_transbordo_panorama else ""
+                legenda_extra = " (transbordos ocultados)" if ocultar_transbordo_tradicional else ""
 
                 st.caption(f"""
                 📌 **Interpretação:** A curva demonstra que os **{formatar_br(pct_municipios_80, auto_precision=False, casas_override=1)}% maiores municípios** (em massa) concentram **80% de todo o RSU do Brasil{legenda_extra}**.
@@ -846,9 +848,8 @@ with tab_tradicional:
 
     st.markdown("---")
     st.subheader(f"🗺️ Para onde o resíduo está indo? (Destinação Final, {ano_selecionado})")
-    ocultar_transbordo = st.checkbox("Ocultar transbordos", value=False)
     df_mun_dest = df_mun.copy()
-    if ocultar_transbordo:
+    if ocultar_transbordo_tradicional:
         df_mun_dest = df_mun_dest[~df_mun_dest[COL_DESTINO].apply(
             lambda x: "TRANSBORDO" in normalizar_texto(x) if pd.notna(x) else False
         )]
@@ -904,12 +905,7 @@ with tab_tradicional:
     if municipio == municipios[0]:
         st.markdown("---")
         st.subheader(f"📊 Distribuição dos resíduos por tipo de destino ({ano_selecionado})")
-        ocultar_transbordo_dist = st.checkbox("Ocultar transbordos", value=False, key="ocultar_transbordo_dist")
         df_dist = df_mun_dest.copy()
-        if ocultar_transbordo_dist:
-            df_dist = df_dist[~df_dist[COL_DESTINO].apply(
-                lambda x: "TRANSBORDO" in normalizar_texto(x) if pd.notna(x) else False
-            )]
         massa_total_dist = df_dist["MASSA_FLOAT"].sum()
         st.markdown(f"### Total de resíduos coletados: **{formatar_br(massa_total_dist, auto_precision=False, casas_override=0)} t**")
         agg_destino = df_dist.groupby(COL_DESTINO)["MASSA_FLOAT"].sum().reset_index()
@@ -935,12 +931,7 @@ with tab_tradicional:
 
         st.markdown("---")
         st.subheader(f"🏳️ Coleta de RSU pelos estados do Brasil ({ano_selecionado})")
-        ocultar_transbordo_est = st.checkbox("Ocultar transbordos", value=False, key="ocultar_transbordo_est")
         df_estados = df_mun_dest.copy()
-        if ocultar_transbordo_est:
-            df_estados = df_estados[~df_estados[COL_DESTINO].apply(
-                lambda x: "TRANSBORDO" in normalizar_texto(x) if pd.notna(x) else False
-            )]
         massa_total_est = df_estados["MASSA_FLOAT"].sum()
         agg_estados = df_estados.groupby("UF")["MASSA_FLOAT"].sum().reset_index()
         agg_estados = agg_estados.sort_values("MASSA_FLOAT", ascending=False)
@@ -1053,15 +1044,7 @@ with tab_tradicional:
         "seletiva.*orgânico|orgânico.*seletiva", case=False, na=False, regex=True)].copy()
     if not df_organicos.empty:
         df_organicos["MASSA_FLOAT"] = pd.to_numeric(df_organicos[COL_MASSA], errors="coerce").fillna(0)
-        ocultar_transbordo_org = st.checkbox("Ocultar transbordos", value=False, key="ocultar_transbordo_org")
         df_mun_org = df_mun_dest.copy()
-        if ocultar_transbordo_org:
-            df_organicos = df_organicos[~df_organicos[COL_DESTINO].apply(
-                lambda x: "TRANSBORDO" in normalizar_texto(x) if pd.notna(x) else False
-            )]
-            df_mun_org = df_mun_org[~df_mun_org[COL_DESTINO].apply(
-                lambda x: "TRANSBORDO" in normalizar_texto(x) if pd.notna(x) else False
-            )]
         total_organicos = df_organicos["MASSA_FLOAT"].sum()
         massa_total_geral_org = df_mun_org["MASSA_FLOAT"].sum()
         st.markdown(f"### Total de orgânicos coletados seletivamente: **{formatar_br(total_organicos, auto_precision=False, casas_override=2)} t**")
@@ -1124,15 +1107,7 @@ with tab_tradicional:
     df_podas = df_mun_dest[df_mun_dest[COL_TIPO_COLETA].astype(str).str.contains("áreas verdes públicas", case=False, na=False)].copy()
     if not df_podas.empty:
         df_podas["MASSA_FLOAT"] = pd.to_numeric(df_podas[COL_MASSA], errors="coerce").fillna(0)
-        ocultar_transbordo_podas = st.checkbox("Ocultar transbordos", value=False, key="ocultar_transbordo_podas")
         df_mun_podas = df_mun_dest.copy()
-        if ocultar_transbordo_podas:
-            df_podas = df_podas[~df_podas[COL_DESTINO].apply(
-                lambda x: "TRANSBORDO" in normalizar_texto(x) if pd.notna(x) else False
-            )]
-            df_mun_podas = df_mun_podas[~df_mun_podas[COL_DESTINO].apply(
-                lambda x: "TRANSBORDO" in normalizar_texto(x) if pd.notna(x) else False
-            )]
         total_podas = df_podas["MASSA_FLOAT"].sum()
         massa_total_geral_podas = df_mun_podas["MASSA_FLOAT"].sum()
         st.markdown(f"### Total de podas e galhadas coletadas: **{formatar_br(total_podas, auto_precision=False, casas_override=2)} t**")
