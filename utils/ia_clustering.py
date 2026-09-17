@@ -4,7 +4,7 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
-import seaborn as sns
+
 
 def preparar_dados_clusterizacao(df_municipios):
     """
