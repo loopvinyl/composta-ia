@@ -1335,6 +1335,19 @@ with tab_ia:
                 pop_calculada = 210000000  # fallback apenas se a coluna J vier zerada
 
             st.info(f"📌 População total do Brasil (soma da coluna J do SINISA): **{formatar_br(pop_calculada, auto_precision=False, casas_override=0)} habitantes**")
+            st.caption(f"""
+            ℹ️ **Por que este valor é diferente do card "👥 População total (SINISA)" da outra aba?**
+
+            - **Card "👥 População total (SINISA)"** = **{formatar_br(POPULACAO_BRASIL_SNIS, auto_precision=False, casas_override=0)} hab**
+              → Soma da coluna J de **TODOS os {TOTAL_MUNICIPIOS_CADASTRO} municípios cadastrados** na aba *'Manejo_Resíduos_Sólidos_Urbanos'* (caracterização), **sem nenhum filtro**.
+
+            - **Este valor (projeção)** = **{formatar_br(pop_calculada, auto_precision=False, casas_override=0)} hab**
+              → Soma da coluna J apenas dos municípios que **efetivamente reportaram pelo menos uma rota de coleta** na aba *'Manejo_Coleta_e_Destinação'*.
+
+            - **Diferença de {formatar_br(POPULACAO_BRASIL_SNIS - pop_calculada, auto_precision=False, casas_override=0)} habitantes** = população dos municípios que estão cadastrados no SINISA, mas **não declararam nenhuma rota de coleta** (dados ausentes ou não se aplicam).
+
+            ⚠️ Aqui usamos a população **apenas dos municípios com dados de coleta**, para que a projeção fique **consistente com a massa de resíduos considerada** no cálculo per capita.
+            """)
             pop_atual = st.number_input(
                 "População total do Brasil (habitantes) – ajuste opcional:",
                 min_value=1000,
