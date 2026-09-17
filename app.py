@@ -882,7 +882,7 @@ with tab_tradicional:
     st.pyplot(fig_dest)
     plt.close(fig_dest)
     st.caption("📌 Classificação dos destinos feita pela IA (PLN) para padronizar as variações textuais do SINISA.")
-    st.caption('📌 O gráfico 1 responde: "Qual categoria concentra mais toneladas?"')
+    st.caption('📌 O gráfico "🗺️ Para onde o resíduo está indo? (Destinação Final)" responde: **"Qual categoria concentra mais toneladas?"**')
 
     st.markdown("#### 📋 Detalhamento por rota de coleta")
     tabela_destino = df_mun_dest[[COL_CODIGO_ROTA, COL_TIPO_COLETA, COL_DESTINO, "MASSA_FLOAT"]].copy()
@@ -1273,7 +1273,7 @@ with tab_ia:
     plt.tight_layout()
     st.pyplot(fig1)
     plt.close(fig1)
-    st.caption('📌 O gráfico 2 responde: "Qual categoria aparece em mais registros/rotas no SINISA?"')
+    st.caption('📌 O gráfico "📊 Distribuição Nacional de Destinos (Classificação por IA)" responde: **"Qual categoria aparece em mais registros/rotas no SINISA?"**')
     st.dataframe(
         contagem_ia.style.format({
             "Quantidade": lambda x: formatar_numero_br(x, 0)
