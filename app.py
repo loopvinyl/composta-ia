@@ -356,16 +356,43 @@ def projetar_residuos_per_capita(populacao_atual, massa_anual_atual,
         })
     return pd.DataFrame(resultados)
 
-def plot_projecao_residuos(df_proj):
+def plot_projecao_residuos(df_proj, per_capita_kg_hab_ano=None):
+    """
+    Plota a projeção de população, massa total de resíduos e per capita.
+
+    - Eixo X: anos da projeção
+    - Eixo Y esquerdo (azul): população projetada (habitantes)
+    - Eixo Y direito (verde): massa total de resíduos (t/ano)
+    - Linha laranja tracejada: per capita mantido constante (kg/hab/ano)
+    """
     fig, ax1 = plt.subplots(figsize=(10, 6))
     ax1.set_xlabel('Ano')
     ax1.set_ylabel('População (habitantes)', color='blue')
-    ax1.plot(df_proj['Ano'], df_proj['Populacao_Projetada'], 'o-', color='blue', linewidth=2, label='População')
+    ax1.plot(df_proj['Ano'], df_proj['Populacao_Projetada'],
+             'o-', color='blue', linewidth=2, label='População')
     ax1.tick_params(axis='y', labelcolor='blue')
+
     ax2 = ax1.twinx()
-    ax2.set_ylabel('Massa de Resíduos (toneladas/ano)', color='green')
-    ax2.plot(df_proj['Ano'], df_proj['Massa_Projetada_ton'], 's-', color='green', linewidth=2, label='Massa')
-    ax2.tick_params(axis='y', labelcolor='green')
+    ax2.set_ylabel('Massa de Resíduos (t/ano)  |  Per capita (kg/hab/ano)',
+                   color='green')
+    ax2.plot(df_proj['Ano'], df_proj['Massa_Projetada_ton'],
+             's-', color='green', linewidth=2, label='Massa total')
+
+    # Linha do per capita (constante por premissa metodológica)
+    if per_capita_kg_hab_ano is None:
+        try:
+            per_capita_kg_hab_ano = (df_proj['Massa_Projetada_ton'].iloc[0]
+                                     / df_proj['Populacao_Projetada'].iloc[0]) * 1000
+        except Exception:
+            per_capita_kg_hab_ano = 0.0
+
+    if per_capita_kg_hab_ano > 0:
+        ax2.plot(df_proj['Ano'],
+                 [per_capita_kg_hab_ano] * len(df_proj),
+                 '--', color='darkorange', linewidth=2,
+                 label=f'Per capita (constante = {formatar_br(per_capita_kg_hab_ano, auto_precision=False, casas_override=1)} kg/hab/ano)')
+
+    # Anotações dos pontos (população e massa)
     for i, row in df_proj.iterrows():
         ax1.annotate(formatar_br(row['Populacao_Projetada'], auto_precision=False, casas_override=0),
                     (row['Ano'], row['Populacao_Projetada']),
@@ -373,7 +400,14 @@ def plot_projecao_residuos(df_proj):
         ax2.annotate(formatar_br(row['Massa_Projetada_ton'], auto_precision=False, casas_override=0),
                     (row['Ano'], row['Massa_Projetada_ton']),
                     textcoords="offset points", xytext=(0,-15), ha='center', fontsize=8, color='green')
-    plt.title('Projeção de População e Geração de Resíduos', fontsize=14)
+
+    plt.title('Projeção: População, Massa Total e Per Capita', fontsize=14)
+
+    # Legenda combinada (azul + verde + laranja)
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left', fontsize=9)
+
     fig.tight_layout()
     return fig
 
@@ -445,14 +479,9 @@ def projetar_emissao_continua(massa_anual_t, mcf, k, doc, docf, anos=20):
         return pd.DataFrame(columns=['Ano', 'Emissao_Anual', 'Emissao_Acumulada'])
     
     # Fator de emissão potencial (tCO2e por tonelada de resíduo depositado)
-    # ch4_pot_kg é kg CH4 por kg de resíduo.
-    # Multiplicando por GWP_CH4 obtemos kg CO2e por kg de resíduo.
-    # Como 1 tonelada = 1000 kg, o fator em tCO2e por tonelada é o MESMO VALOR NUMÉRICO
-    # (porque a tonelada tem 1000 kg, e o fator já é por kg).
-    # Portanto, NÃO se divide por 1000 aqui.
     ch4_pot_kg = (doc * docf * mcf * F_METHANE_FRACTION * (16/12) *
                   (1 - OX_SOIL_COVER) * PHI_APPLICATION_B)
-    fator_tco2_por_ton = ch4_pot_kg * GWP_CH4  # <--- CORREÇÃO: removido o /1000
+    fator_tco2_por_ton = ch4_pot_kg * GWP_CH4
     
     resultados = []
     emissao_acumulada_total = 0.0
@@ -661,9 +690,6 @@ with tab_tradicional:
 
         # =========================================================
         # PAINEL DE MUNICÍPIOS — 4 CARDS
-        # Explicita a diferença entre:
-        #  (a) municípios que REPORTARAM coleta (aba Manejo_Coleta_e_Destinação)
-        #  (b) TOTAL de municípios cadastrados no SINISA (aba Manejo_Resíduos_Sólidos_Urbanos)
         # =========================================================
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("🏙️ Municípios que reportaram coleta", total_municipios_snis,
@@ -709,10 +735,6 @@ with tab_tradicional:
 
                 # =========================================================
                 # PER CAPITA NACIONAL AGREGADO (PONDERADO)
-                # Massa total ÷ População total × 1000
-                # - Massa: dos municípios que reportaram (respeitando "Ocultar transbordos")
-                # - População: SOMA BRUTA da coluna J (todos os municípios cadastrados
-                #   na aba 'Manejo_Resíduos_Sólidos_Urbanos' — sem filtros)
                 # =========================================================
                 massa_total_brasil_pc = df_massa_mun['MASSA_COLETADA'].sum()
                 pop_total_brasil_pc = POPULACAO_BRASIL_SNIS  # 5.570 municípios, sem filtro
@@ -723,9 +745,6 @@ with tab_tradicional:
                 # =========================================================
                 per_capita_dia = per_capita_nacional / 365.0 if per_capita_nacional > 0 else 0.0
 
-                # Fração orgânica de referência (50%) — Pimentel e Capanema (2025):
-                # "os resíduos orgânicos correspondem a mais da metade do total
-                #  coletado nas cidades brasileiras". Adota-se o piso conservador 50%.
                 fracao_organica_nacional = calcular_fracao_organica_nacional(df_panorama)
 
                 per_capita_organico_ano = per_capita_nacional * fracao_organica_nacional
@@ -742,7 +761,6 @@ with tab_tradicional:
 
                 # =========================================================
                 # PAINEL 1 — DADOS REAIS DO SINISA (4 cards)
-                # ⚖️ Massa total coletada | 👥 População | 📊 Per capita anual | 📆 Per capita diário
                 # =========================================================
                 st.markdown("##### 📋 Indicadores extraídos diretamente do SINISA")
                 col1, col2, col3, col4 = st.columns(4)
@@ -772,7 +790,6 @@ with tab_tradicional:
 
                 # =========================================================
                 # PAINEL 2 — ESTIMATIVAS (2 cards) em container com borda
-                # 🌱 Orgânico anual | 🌱 Orgânico diário
                 # =========================================================
                 with st.container(border=True):
                     st.markdown("##### 🔬 Estimativas — fração orgânica de referência")
@@ -1253,10 +1270,6 @@ with tab_ia:
     Isso ajuda a identificar quais municípios são prioritários para políticas de compostagem.
     """)
 
-    # =========================================================
-    # CORREÇÃO: o slider de número de clusters fica FORA do botão,
-    # para que o usuário escolha o valor ANTES de executar.
-    # =========================================================
     n_clusters = st.slider(
         "Número de clusters:",
         min_value=2,
@@ -1280,7 +1293,6 @@ with tab_ia:
                 if X.empty:
                     st.warning("Dados insuficientes para clusterização.")
                 else:
-                    # n_clusters já foi escolhido pelo usuário ANTES do clique
                     labels, kmeans, scaler = clusterizar_municipios(X, n_clusters=n_clusters)
                     df_cluster['Cluster'] = labels
                     X_pca, pca = aplicar_pca(X)
@@ -1333,17 +1345,10 @@ with tab_ia:
         key="proj_municipio"
     )
     if municipio_proj:
-        # =========================================================
-        # A POPULAÇÃO É OBTIDA DIRETAMENTE DA COLUNA J DO SINISA
-        # - Brasil: soma das populações de todos os municípios únicos
-        # - Município: valor real do SINISA
-        # (o st.number_input continua disponível apenas para ajuste manual opcional)
-        # =========================================================
         if municipio_proj == "BRASIL – Todos os municípios":
             df_mun_proj = df_clean_ia.copy()
             massa_atual = df_mun_proj['MASSA_COLETADA'].sum()
 
-            # SOMA DAS POPULAÇÕES DE TODOS OS MUNICÍPIOS ÚNICOS (coluna J do SINISA)
             pop_calculada = (
                 df_mun_proj
                 .drop_duplicates(subset=[COL_MUNICIPIO])
@@ -1351,7 +1356,7 @@ with tab_ia:
                 .sum()
             )
             if pop_calculada <= 0:
-                pop_calculada = 210000000  # fallback apenas se a coluna J vier zerada
+                pop_calculada = 210000000
 
             st.info(f"📌 População total do Brasil (soma da coluna J do SINISA): **{formatar_br(pop_calculada, auto_precision=False, casas_override=0)} habitantes**")
             st.caption(f"""
@@ -1379,7 +1384,6 @@ with tab_ia:
             df_mun_proj = df_clean_ia[df_clean_ia[COL_MUNICIPIO] == municipio_proj]
             massa_atual = df_mun_proj['MASSA_COLETADA'].sum()
 
-            # POPULAÇÃO REAL DO MUNICÍPIO (coluna J do SINISA)
             pop_serie = (
                 df_mun_proj
                 .drop_duplicates(subset=[COL_MUNICIPIO])['POPULACAO_TOTAL']
@@ -1408,12 +1412,26 @@ with tab_ia:
                 with st.spinner("Calculando projeções..."):
                     try:
                         df_proj = projetar_residuos_per_capita(pop_atual, massa_atual, taxa_pop, anos_proj)
-                        fig = plot_projecao_residuos(df_proj)
+                        # >>> CÁLCULO DO PER CAPITA ATUAL (kg/hab/ano) PARA PLOTAR A LINHA CONSTANTE <<<
+                        per_capita_atual_kg_hab_ano = (massa_atual / pop_atual) * 1000 if pop_atual > 0 else 0.0
+                        fig = plot_projecao_residuos(df_proj, per_capita_kg_hab_ano=per_capita_atual_kg_hab_ano)
                         st.pyplot(fig)
                         st.dataframe(df_proj.style.format({
                             'Populacao_Projetada': lambda x: formatar_br(x, auto_precision=False, casas_override=0),
                             'Massa_Projetada_ton': lambda x: formatar_br(x, auto_precision=False, casas_override=0)
                         }))
+                        # >>> NOVO CAPTION EXPLICATIVO DO GRÁFICO <<<
+                        st.caption(f"""
+                        📌 **Como ler o gráfico acima:**
+                        - **Eixo X**: anos da projeção (a partir de {datetime.now().year + 1}).
+                        - **Eixo Y esquerdo (azul)**: população projetada (habitantes).
+                        - **Eixo Y direito (verde + laranja)**:
+                          - 🟢 Linha verde com quadrados = **massa total de resíduos** (t/ano);
+                          - 🟠 Linha laranja tracejada = **per capita** mantido **constante** em {formatar_br(per_capita_atual_kg_hab_ano, auto_precision=False, casas_override=1)} kg/hab/ano.
+
+                        ⚠️ **Por que o per capita é uma reta horizontal?**
+                        Por premissa metodológica, assume-se que a **geração per capita permanece constante** ao longo do tempo (não há mudança de hábito de consumo). Portanto, a massa total de resíduos cresce **apenas** porque a população cresce — a linha verde sobe junto com a azul, na mesma proporção.
+                        """)
                         ultimo = df_proj.iloc[-1]
                         if titulo_proj == "Brasil":
                             st.success(f"📌 **Em {ultimo['Ano']:.0f}, o Brasil precisará gerenciar aproximadamente {formatar_br(ultimo['Massa_Projetada_ton'], auto_precision=False, casas_override=0)} toneladas de resíduos.**")
@@ -1630,7 +1648,6 @@ with tab_ia:
                 pct_media = 2.0
                 st.warning("⚠️ A média calculada foi muito baixa ou nula. Usando valor de fallback de 2,0% para o cenário otimista.")
 
-            # Textos das opções do rádio (rótulos longos e explicativos)
             OPCAO_REALISTA = (
                 "📊 Realista (1º quartil): Se todos os municípios sem coleta seletiva "
                 "atingirem o nível dos 25% piores que já têm, quanto ganhamos?"
@@ -1655,7 +1672,6 @@ with tab_ia:
                 )
             )
 
-            # Comparação continua robusta (compara por identidade da string completa)
             if tipo_cenario == OPCAO_REALISTA:
                 meta_cobertura = pct_25
                 rotulo = f"1º quartil ({formatar_br(pct_25, auto_precision=False, casas_override=2)}%)"
@@ -1912,12 +1928,8 @@ with tab_ia:
     - Quanto maior o fator, maior o impacto do passivo acumulado.
     """)
 
-    # Calcular o fator de acumulação para o Brasil (média ponderada)
     with st.spinner("Calculando fator de acumulação para os cenários contínuos..."):
-        # Usa os dados de emissão já processados (df_emissoes) para calcular o fator médio
-        # Se df_emissoes não estiver disponível, usa valores padrão
         if 'df_emissoes' in locals() and not df_emissoes.empty:
-            # Calcula a massa total e parâmetros médios ponderados
             massa_total = df_emissoes['Massa_Aterro_Anual_t'].sum()
             if massa_total > 0:
                 mcf_medio = (df_emissoes['Massa_Aterro_Anual_t'] * df_emissoes['MCF_Medio']).sum() / massa_total
@@ -1925,46 +1937,35 @@ with tab_ia:
                 docf_medio = (df_emissoes['Massa_Aterro_Anual_t'] * df_emissoes['DOCF_Medio']).sum() / massa_total
                 k_medio = (df_emissoes['Massa_Aterro_Anual_t'] * df_emissoes['k_Medio']).sum() / massa_total
                 
-                # Fator de emissão por tonelada
                 ch4_pot_kg = (doc_medio * docf_medio * mcf_medio * F_METHANE_FRACTION * (16/12) *
                               (1 - OX_SOIL_COVER) * PHI_APPLICATION_B)
-                fator_tco2_por_ton = ch4_pot_kg * GWP_CH4  # tCO2e por tonelada
+                fator_tco2_por_ton = ch4_pot_kg * GWP_CH4
                 
-                # Emissão média de 1 depósito (por tonelada) = fator * (1 - exp(-k*20)) / 20
                 emissao_media_por_t = fator_tco2_por_ton * (1 - np.exp(-k_medio * 20)) / 20
-                
-                # Emissão no ano 20 (depósitos contínuos) por tonelada = fator * (1 - exp(-k*20))
                 emissao_continua_por_t = fator_tco2_por_ton * (1 - np.exp(-k_medio * 20))
                 
-                # Fator de acumulação = emissão contínua / emissão média
                 fator_acumulacao = emissao_continua_por_t / emissao_media_por_t if emissao_media_por_t > 0 else 20
             else:
-                fator_acumulacao = 20  # fallback
+                fator_acumulacao = 20
         else:
-            # fallback se df_emissoes não estiver disponível
             fator_acumulacao = 20
 
         st.info(f"📌 **Fator de acumulação médio para o Brasil: {fator_acumulacao:.1f}x** — ou seja, a emissão anual no 20º ano de operação contínua é {fator_acumulacao:.1f} vezes maior que a média de um único depósito.")
 
-    # Recalcula os cenários com o fator de acumulação
     fator = fator_acumulacao
 
-    # Cenário Atual (Pessimista) – contínuo
-    massa_compost_cont = massa_compostada_atual  # a massa desviada é a mesma, mas o impacto é multiplicado
+    massa_compost_cont = massa_compostada_atual
     emissao_evitada_cont = evitado_atual * fator
     receita_cont = receita_atual * fator
 
-    # Cenário Realista – contínuo
     massa_compost_realista_cont = massa_compostada_realista
     emissao_evitada_realista_cont = evitado_total_realista * fator
     receita_realista_cont = receita_total_realista * fator
 
-    # Cenário Otimista – contínuo
     massa_compost_otimista_cont = massa_compostada_otimista
     emissao_evitada_otimista_cont = evitado_total_otimista * fator
     receita_otimista_cont = receita_total_otimista * fator
 
-    # Exibe os resultados
     col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown("#### 📉 Cenário Atual (Contínuo)")
