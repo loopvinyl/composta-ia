@@ -17,6 +17,7 @@ import streamlit as st
 
 # =========================================================
 # CONFIGURAÇÃO INICIAL DA PÁGINA
+# (deve ser o PRIMEIRO comando Streamlit executado)
 # =========================================================
 st.set_page_config(
     page_title="Composta.IA — Em breve de volta ao ar",
@@ -27,6 +28,9 @@ st.set_page_config(
 
 # =========================================================
 # 🔒 CHAVE MESTRA — CONTROLE DE LIBERAÇÃO
+# Prioridade:
+#   1) st.secrets["MOSTRAR_EM_BREVE"] (Streamlit Cloud / secrets.toml)
+#   2) valor local abaixo
 # =========================================================
 MOSTRAR_EM_BREVE_LOCAL = True  # <-- troque para False para LIBERAR o app
 
@@ -130,6 +134,7 @@ if MOSTRAR_EM_BREVE:
                 gap: 0.6rem;
             }
 
+            /* ---------- Grid de cards ---------- */
             .cards-grid {
                 display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -401,14 +406,14 @@ if MOSTRAR_EM_BREVE:
         unsafe_allow_html=True,
     )
 
-    # ⛔ Interrompe a execução aqui
+    # ⛔ Interrompe a execução aqui — nada abaixo é exibido
     st.stop()
 
 # =========================================================
 # ✅ APP COMPLETO (só carrega se estiver liberado)
 # =========================================================
 try:
-    import composta_ia  # noqa: F401
+    import composta_ia  # noqa: F401  — a execução do módulo já renderiza o app
 except ModuleNotFoundError:
     st.error(
         "❌ Módulo `composta_ia.py` não encontrado. "
